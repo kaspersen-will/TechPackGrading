@@ -12,7 +12,10 @@ def get_connection(db_path):
     return conn
 
 
-def init_db(db_path):
+def init_db(db_path, schemas):
+    """
+    Initialize each domain's schema
+    """
     conn = get_connection(db_path)
     try:
         conn.executescript(SCHEMA)

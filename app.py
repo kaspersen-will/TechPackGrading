@@ -1,6 +1,7 @@
 import os
 from flask import Flask
 import db
+from specs.store import SCHEMA
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -11,7 +12,7 @@ def create_app():
     os.makedirs(data_dir, exist_ok=True)
     app.config["DATABASE"] = os.path.join(data_dir, "techpack.db")
 
-    db.init_db(app.config["DATABASE"])
+    db.init_db(app.config["DATABASE"], [SCHEMA])
 
     @app.route("/health")
     def health():
