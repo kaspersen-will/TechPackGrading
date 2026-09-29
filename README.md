@@ -67,7 +67,6 @@ All configuration is through environment variables. None are required.
 
 SQLite file at `$DATA_DIR/techpack.db`. It is created and initialized automatically on startup, with no manual migration step.
 
-
 ## Configuration
 
 The app is configured entirely through environment variables:
