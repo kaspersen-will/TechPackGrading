@@ -2,8 +2,7 @@
 # Pure grading logic. All values are integer mm, so every sum is exact.
 
 class GradingError(ValueError):
-    # Raised when grading fails due to missing or invalid data.
-    pass
+     """A graded value or size run can't be built from the data given."""
 
 
 def validate_size_run(sizes, base_size):
@@ -18,7 +17,12 @@ def validate_size_run(sizes, base_size):
 
 
 def grade(base_value_mm, base_position, target_position, increments):
-    # Return one point of measure's value at target_position, in mm.
+    """Return one point of measure's value at target_position, in mm.
+ 
+    increments maps a size position to: value at that size minus value
+    at the size just below it. Going up from the base adds increments,
+    going down subtracts them.
+    """
     value = base_value_mm
     if target_position > base_position:
         for position in range(base_position + 1, target_position + 1):

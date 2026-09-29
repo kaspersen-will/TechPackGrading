@@ -7,6 +7,7 @@ from email.mime import text
  
  
 def cm_to_mm(measurement):
+    """Parse a cm value typed into a form ("52.5") into integer mm (525)."""
     try:
         value = Decimal(str(measurement).strip())
     except InvalidOperation:
@@ -20,4 +21,5 @@ def cm_to_mm(measurement):
  
  
 def mm_to_cm(mm):
+    """Format integer mm for display: 525 -> "52.5", 520 -> "52.0"."""
     return f"{mm / 10:.1f}"
