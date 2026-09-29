@@ -36,6 +36,38 @@ Each domain owns its own tables. Sample fit review reads specs only through a si
 | Tolerance | How far a measurement may deviate from the spec and still pass |
 | Sample round | A stage of factory samples: proto, fit, then pre-production |
 
+## Running locally
+
+Requires Python 3.9+.
+
+```bash
+python -m venv .venv
+# macOS/Linux:
+source .venv/bin/activate
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+python app.py
+```
+
+The app starts on http://localhost:8000. Check it with `GET /health`, which returns `{"status": "ok"}`.
+
+### Configuration
+
+All configuration is through environment variables. None are required.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `8000` | Port the server listens on (binds to `0.0.0.0`) |
+| `DATA_DIR` | `./data` (next to `app.py`) | Directory for the SQLite database; created if missing |
+| `APP_DEBUG` | `0` | Set to `1` to enable Flask debug mode (local development only) |
+
+### Database
+
+SQLite file at `$DATA_DIR/techpack.db`. It is created and initialized automatically on startup, with no manual migration step.
+
+
 ## Configuration
 
 The app is configured entirely through environment variables:
