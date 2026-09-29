@@ -13,6 +13,8 @@ def validate_size_run(sizes, base_size):
         raise GradingError("a size run can't list the same size twice")
     if base_size not in sizes:
         raise GradingError(f"base size {base_size!r} is not in the size run")
+    if any(not size.strip() for size in sizes):
+        raise GradingError("a size label can't be blank")
 
 
 def grade(base_value_mm, base_position, target_position, increments):

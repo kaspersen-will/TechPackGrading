@@ -39,6 +39,7 @@ def test_size_run_valid():
         ([], "M", "at least one"),
         (["S", "M", "M"], "M", "twice"),
         (["S", "M", "L"], "XL", "not in the size run"),
+        (["S", " ", "L"], "S", "blank"),
     ],
 )
 def test_size_run_invalid(sizes, base_size, message):
