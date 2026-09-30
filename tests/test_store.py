@@ -39,9 +39,11 @@ def test_init_db_can_run_twice(tmp_path):
 
 def test_graded_spec_for_each_size(conn, jacket):
     style_id, _ = jacket
-    assert get_graded_spec(conn, style_id, "XS")[0]["target_mm"] == 485
+    assert get_graded_spec(conn, style_id, "XS")["poms"][0]["target_mm"] == 485
     spec = get_graded_spec(conn, style_id, "XL")
-    assert spec == [
+    assert spec == {
+    "style_code": "FW26-JKT-014",
+    "poms": [
         {
             "pom_id": jacket[1],
             "code": "CH",
@@ -49,7 +51,8 @@ def test_graded_spec_for_each_size(conn, jacket):
             "target_mm": 565,
             "tolerance_mm": 10,
         }
-    ]
+    ],
+}
 
 
 def test_graded_spec_unknown_size(conn, jacket):
@@ -72,7 +75,7 @@ def test_graded_spec_missing_rule(conn, jacket):
 def test_set_grade_rule_replaces_existing(conn, jacket):
     style_id, chest = jacket
     set_grade_rule(conn, chest, "XL", 30)
-    assert get_graded_spec(conn, style_id, "XL")[0]["target_mm"] == 570
+    assert get_graded_spec(conn, style_id, "XL")["poms"][0]["target_mm"] == 570
 
 
 def test_no_grade_rule_on_smallest_size(conn, jacket):
@@ -117,6 +120,6 @@ def test_each_point_of_measure_uses_its_own_rules(conn, jacket):
     sleeve = add_point_of_measure(conn, style_id, "SL", "Sleeve length", 640, 10)
     for size, increment in [("S", 5), ("M", 10), ("L", 10), ("XL", 15)]:
         set_grade_rule(conn, sleeve, size, increment)
-    spec = {row["code"]: row["target_mm"] for row in get_graded_spec(conn, style_id, "XL")}
+    graded = get_graded_spec(conn, style_id, "XL")["poms"]
+    spec = {row["code"]: row["target_mm"] for row in graded}
     assert spec == {"CH": 565, "SL": 665}
-    

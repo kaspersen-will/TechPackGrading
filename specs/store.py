@@ -89,7 +89,12 @@ def set_grade_rule(conn, pom_id, size_label, increment_mm):
 
 
 def get_graded_spec(conn, style_id, size_label):
-    """Return every point of measure of a style, graded to one size."""
+    """Return every point of measure of a style, graded to one size.
+
+    Shape: {"style_code": str, "poms": [{pom_id, code, description,
+    target_mm, tolerance_mm}, ...]}. style_code is included so Domain 2 can
+    snapshot it and still label a round after the style is deleted.
+    """
     positions = conn.execute(
         "SELECT target.position AS target_position, base.position AS base_position"
         " FROM style st"
@@ -98,6 +103,7 @@ def get_graded_spec(conn, style_id, size_label):
         " WHERE st.id = ?",
         (size_label, style_id),
     ).fetchone()
+
     if positions is None:
         raise GradingError(f"style {style_id} has no size {size_label!r}")
 
@@ -107,6 +113,7 @@ def get_graded_spec(conn, style_id, size_label):
         " WHERE s.style_id = ?",
         (style_id,),
     ).fetchall()
+
     increments_by_pom = {}
     for rule in rules:
         increments_by_pom.setdefault(rule["pom_id"], {})[rule["position"]] = rule["increment_mm"]
@@ -116,7 +123,8 @@ def get_graded_spec(conn, style_id, size_label):
         " FROM point_of_measure WHERE style_id = ? ORDER BY code",
         (style_id,),
     ).fetchall()
-    return [
+
+    graded = [
         {
             "pom_id": pom["id"],
             "code": pom["code"],
@@ -131,3 +139,4 @@ def get_graded_spec(conn, style_id, size_label):
         }
         for pom in poms
     ]
+    return {"style_code": positions["style_code"], "poms": graded}
