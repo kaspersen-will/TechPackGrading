@@ -140,3 +140,70 @@ def get_graded_spec(conn, style_id, size_label):
         for pom in poms
     ]
     return {"style_code": positions["style_code"], "poms": graded}
+
+# ---- Read/delete functions for Domain 1's own pages. ----
+# Domain 2's only entry point is get_graded_spec.
+ 
+ 
+def list_styles(conn):
+    return conn.execute("SELECT id, code, name, base_size FROM style ORDER BY code").fetchall()
+ 
+ 
+def get_style(conn, style_id):
+    """Everything the style page shows, or None if the style doesn't exist.
+ 
+    rules maps pom_id -> {size label: increment_mm}.
+    size_run maps pom_id -> {size label: target_mm, or None if a rule is missing}.
+    """
+    style = conn.execute(
+        "SELECT id, code, name, base_size FROM style WHERE id = ?", (style_id,)
+    ).fetchone()
+    if style is None:
+        return None
+ 
+    sizes = conn.execute(
+        "SELECT label, position FROM style_size WHERE style_id = ? ORDER BY position",
+        (style_id,),
+    ).fetchall()
+    poms = conn.execute(
+        "SELECT id, code, description, base_value_mm, tolerance_mm"
+        " FROM point_of_measure WHERE style_id = ? ORDER BY code",
+        (style_id,),
+    ).fetchall()
+    rule_rows = conn.execute(
+        "SELECT r.pom_id, s.label, s.position, r.increment_mm FROM grade_rule r"
+        " JOIN style_size s ON s.id = r.size_id WHERE s.style_id = ?",
+        (style_id,),
+    ).fetchall()
+ 
+    rules = {pom["id"]: {} for pom in poms}
+    by_position = {pom["id"]: {} for pom in poms}
+    for row in rule_rows:
+        rules[row["pom_id"]][row["label"]] = row["increment_mm"]
+        by_position[row["pom_id"]][row["position"]] = row["increment_mm"]
+ 
+    base_position = next(s["position"] for s in sizes if s["label"] == style["base_size"])
+    size_run = {}
+    for pom in poms:
+        size_run[pom["id"]] = {}
+        for size in sizes:
+            try:
+                target = grade(pom["base_value_mm"], base_position, size["position"],
+                               by_position[pom["id"]])
+            except GradingError:
+                target = None
+            size_run[pom["id"]][size["label"]] = target
+ 
+    return {"style": style, "sizes": sizes, "poms": poms, "rules": rules, "size_run": size_run}
+ 
+ 
+def delete_style(conn, style_id):
+    """Delete a style; ON DELETE CASCADE removes its sizes, POMs and grade rules.
+ 
+    Knows nothing about sample rounds: Domain 2 copes with its own leftovers.
+    Returns False if there was no such style.
+    """
+    with conn:
+        cur = conn.execute("DELETE FROM style WHERE id = ?", (style_id,))
+    return cur.rowcount == 1
+ 
