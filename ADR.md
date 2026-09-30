@@ -13,3 +13,11 @@ Context: Real size runs don't grade evenly (e.g. XS-->S at +2cm, M-->L at +3.5cm
 Decision: One grade_rule row per point of measure per size step, where increment is value at that size minus the size below. All measurements stored as integer mm in STRICT tables; cm only at form/ display edge. Domain 2 stores no foreign keys.
 Alternatives considered: Storing values as real centimetres was rejected because calculations end up not being 100% precise; a sleeve measuring 60.8 cm failed a 1 cm tolerance that it actually met. Foreign keys going from domain 2 to domain 1; they would have to be removed once the dbs split.
 Consequences: It enables exact integer tolerance comparisons, and a diagram with no relationship line crossing the seam. It costs a cm to mm conversion at every form and display, and orphaned sample rounds become possible.
+
+## 2. Domain Split + Snapshot Across the Seam
+Date: 2026-09-30
+Status: Decided
+Context: Separate jobs in the two domains (specs + grading / sample fit review), and must be separable into services for later. A recorded verdict must not change when a spec is later edited or deleted
+Decision: Domain 2 only reads domain 1 through get_graded_spec; each domain owns its own schema string, store module and template.
+Alternatives considered: Live lookup at report time --> an edited grade rule silently rewrites past verdicts. Snapshot at round creation, measurements later --> nullable measured_mm, half-entered rounds
+Consequences: Reports survive style deletion, one function turns it into a HTTP call later. However spec values are stored twice and correcting one doesn't overwrite old rounds.
