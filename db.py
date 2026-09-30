@@ -18,7 +18,8 @@ def init_db(db_path, schemas):
     """
     conn = get_connection(db_path)
     try:
-        conn.executescript(SCHEMA)
+        for schema in schemas:
+            conn.executescript(schema)
         conn.commit()
     finally:
         conn.close()

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Tech pack{% endblock %}</title>
+  <style>
+    :root { --ink: #1d2433; --muted: #5b6475; --line: #cfd6e3; --paper: #fbfcfe; --mark: #2f5bd3; --bad: #b3261e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink);
+           font: 16px/1.5 "Helvetica Neue", Arial, sans-serif; }
+    header { border-bottom: 2px solid var(--ink); padding: 1rem 1.5rem; }
+    header a { color: var(--ink); text-decoration: none; font-weight: 700; letter-spacing: .02em; }
+    main { max-width: 960px; padding: 1.5rem; }
+    h1 { font-size: 1.75rem; margin: 0 0 .25rem; }
+    h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; }
+    p.meta { color: var(--muted); margin: 0 0 1rem; }
+    .error { border-left: 4px solid var(--bad); padding: .5rem .75rem; color: var(--bad); background: #fff; }
+    .scroll { overflow-x: auto; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: right; font-variant-numeric: tabular-nums; }
+    th:first-child, td:first-child, td.text { text-align: left; }
+    th { background: #eef2f8; font-weight: 600; }
+    th.base { background: var(--ink); color: #fff; }
+    td.missing { color: var(--muted); }
+    form.inline { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+    label { display: flex; flex-direction: column; font-size: .85rem; color: var(--muted); }
+    input { font: inherit; padding: .3rem .4rem; border: 1px solid var(--line); background: #fff; width: 8rem; }
+    input.wide { width: 16rem; }
+    button { font: inherit; padding: .35rem .8rem; border: 1px solid var(--ink); background: var(--ink); color: #fff; cursor: pointer; }
+    button.danger { background: #fff; color: var(--bad); border-color: var(--bad); }
+    a { color: var(--mark); }
+    :focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <header><a href="{{ url_for('specs.list_styles') }}">Tech pack</a></header>
+  <main>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

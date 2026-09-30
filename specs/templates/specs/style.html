@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ style.code }}{% endblock %}
+{% block content %}
+<h1>{{ style.code }} {{ style.name }}</h1>
+<p class="meta">Base size {{ style.base_size }}. All values in cm.</p>
+
+<h2>Size run</h2>
+{% if poms %}
+<div class="scroll"><table>
+  <tr>
+    <th>Point of measure</th><th>Tol ±</th>
+    {% for size in sizes %}<th class="{{ 'base' if size.label == style.base_size }}">{{ size.label }}</th>{% endfor %}
+  </tr>
+  {% for pom in poms %}
+  <tr>
+    <td>{{ pom.code }} {{ pom.description }}</td>
+    <td>{{ pom.tolerance_mm | cm }}</td>
+    {% for size in sizes %}
+    {% set target = size_run[pom.id][size.label] %}
+    <td class="{{ 'missing' if target is none }}">{{ target | cm }}</td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table></div>
+<p class="meta">A dash means a grade rule between that size and the base is missing.</p>
+{% else %}
+<p class="meta">No points of measure yet. Add one below.</p>
+{% endif %}
+
+{% if poms and sizes|length > 1 %}
+<h2>Grade rules</h2>
+<p class="meta">Each value is how much larger that size is than the size just below it.</p>
+{% for pom in poms %}
+<form class="inline" method="post"
+      action="{{ url_for('specs.set_rules', style_id=style.id, pom_id=pom.id) }}">
+  <strong style="min-width: 10rem">{{ pom.code }}</strong>
+  {% for size in sizes[1:] %}
+  {% set current = rules[pom.id].get(size.label) %}
+  <label>{{ size.label }} <input name="inc_{{ size.label }}" inputmode="decimal"
+         value="{{ current | cm if current is not none }}"></label>
+  {% endfor %}
+  <button>Save rules</button>
+</form>
+{% endfor %}
+{% endif %}
+
+<h2>Add point of measure</h2>
+<form class="inline" method="post" action="{{ url_for('specs.add_pom', style_id=style.id) }}">
+  <label>Code <input name="code" required placeholder="CH"></label>
+  <label>Description <input class="wide" name="description" required placeholder="Chest, 1 cm below armhole"></label>
+  <label>At {{ style.base_size }} (cm) <input name="base_value_cm" inputmode="decimal" required></label>
+  <label>Tolerance ± (cm) <input name="tolerance_cm" inputmode="decimal" required></label>
+  <button>Add point of measure</button>
+</form>
+
+<h2>Delete style</h2>
+<form method="post" action="{{ url_for('specs.delete_style', style_id=style.id) }}">
+  <p class="meta">Removes its sizes, points of measure and grade rules. Sample rounds already recorded keep their own copy of the spec.</p>
+  <button class="danger">Delete {{ style.code }}</button>
+</form>
+{% endblock %}

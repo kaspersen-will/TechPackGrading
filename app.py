@@ -1,7 +1,8 @@
 import os
-from flask import Flask
+from flask import Flask, redirect, url_for
 import db
-from specs.store import SCHEMA
+from specs.store import SCHEMA as SPECS_SCHEMA
+from specs.routes import bp as specs_bp
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -12,12 +13,17 @@ def create_app():
     os.makedirs(data_dir, exist_ok=True)
     app.config["DATABASE"] = os.path.join(data_dir, "techpack.db")
 
-    db.init_db(app.config["DATABASE"], [SCHEMA])
+    db.init_db(app.config["DATABASE"], [SPECS_SCHEMA])
+    app.register_blueprint(specs_bp)
 
     @app.route("/health")
     def health():
         return {"status": "ok"}
 
+    @app.route("/")
+    def index():
+        return redirect(url_for("specs.list_styles"))
+ 
     return app
 
 

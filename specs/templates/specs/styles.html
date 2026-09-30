@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Styles{% endblock %}
+{% block content %}
+<h1>Styles</h1>
+{% if styles %}
+<div class="scroll"><table>
+  <tr><th>Code</th><th>Name</th><th>Base size</th></tr>
+  {% for style in styles %}
+  <tr>
+    <td><a href="{{ url_for('specs.show_style', style_id=style.id) }}">{{ style.code }}</a></td>
+    <td class="text">{{ style.name }}</td>
+    <td>{{ style.base_size }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<p class="meta">No styles yet. Create the first one below.</p>
+{% endif %}
+
+<h2>New style</h2>
+<form class="inline" method="post" action="{{ url_for('specs.create_style') }}">
+  <label>Code <input name="code" required value="{{ form.code if form }}"></label>
+  <label>Name <input class="wide" name="name" required value="{{ form.name if form }}"></label>
+  <label>Sizes, smallest first <input class="wide" name="sizes" placeholder="XS, S, M, L, XL" required value="{{ form.sizes if form }}"></label>
+  <label>Base size <input name="base_size" placeholder="M" required value="{{ form.base_size if form }}"></label>
+  <button>Create style</button>
+</form>
+{% endblock %}
