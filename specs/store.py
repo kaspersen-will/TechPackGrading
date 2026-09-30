@@ -96,7 +96,8 @@ def get_graded_spec(conn, style_id, size_label):
     snapshot it and still label a round after the style is deleted.
     """
     positions = conn.execute(
-        "SELECT target.position AS target_position, base.position AS base_position"
+        "SELECT st.code AS style_code,"
+        " target.position AS target_position, base.position AS base_position"
         " FROM style st"
         " JOIN style_size target ON target.style_id = st.id AND target.label = ?"
         " JOIN style_size base ON base.style_id = st.id AND base.label = st.base_size"
