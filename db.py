@@ -1,8 +1,7 @@
 import sqlite3
 
-# Domain tables are added with ADR-3 (schema decision).
-SCHEMA = """
-"""
+# Shared connection helpers. Each domain owns its own SCHEMA string
+# (specs/store.py, samples/store.py); app.py passes both to init_db.
 
 # 
 def get_connection(db_path):

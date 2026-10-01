@@ -3,7 +3,6 @@
 # comparisons happen in integer mm; cm exists only at the form/display edge.
 
 from decimal import Decimal, InvalidOperation
-from email.mime import text
  
  
 def cm_to_mm(measurement):
