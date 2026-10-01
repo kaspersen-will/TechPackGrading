@@ -1,4 +1,5 @@
-"""HTTP layer for Specs & Grading. Converts cm <-> mm, calls the store, renders.
+"""HTTP layer for Specs & Grading. Parses cm form input to mm, calls the store, renders.
+
 
 No grading math lives here. Errors re-render the page with a 400 instead of
 using flash(), so the app needs no sessions and no SECRET_KEY.
@@ -12,14 +13,14 @@ from flask import Blueprint, abort, current_app, redirect, render_template, requ
 import db
 from specs import store
 from specs.grading import GradingError
-from units import cm_to_mm, mm_to_cm
+from units import cm_to_mm
 
 bp = Blueprint("specs", __name__, template_folder="templates", url_prefix="/styles")
 
 
-@bp.app_template_filter("cm")
-def cm_filter(mm):
-    return "—" if mm is None else mm_to_cm(mm)
+#@bp.app_template_filter("cm")
+#def cm_filter(mm):
+    #return "—" if mm is None else mm_to_cm(mm)
 
 
 def _connect():

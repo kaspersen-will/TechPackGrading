@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Round #{{ round.id }}{% endblock %}
+{% block content %}
+<h1>Round #{{ round.id }}: {{ round.style_code }}, size {{ round.size_label }}</h1>
+<p class="meta">Stage {{ round.stage }}, recorded {{ round.recorded_at }}. Spec values are the copy taken when the round was recorded. All values in cm.</p>
+
+<h2>{{ "Approved" if summary.approved else "Rejected" }}: {{ summary.failed }} of {{ summary.total }} out of tolerance</h2>
+{% if summary.failed_codes %}<p class="meta">Out of tolerance: {{ summary.failed_codes | join(", ") }}</p>{% endif %}
+
+<div class="scroll"><table>
+  <tr><th>Point of measure</th><th>Spec</th><th>Tol ±</th><th>Measured</th><th>Deviation</th><th>Result</th></tr>
+  {% for row in measurements %}
+  <tr>
+    <td>{{ row.pom_code }} {{ row.description }}</td>
+    <td>{{ row.target_mm | cm }}</td>
+    <td>{{ row.tolerance_mm | cm }}</td>
+    <td>{{ row.measured_mm | cm }}</td>
+    <td>{{ "+" if row.deviation_mm > 0 }}{{ row.deviation_mm | cm }}</td>
+    <td class="text" {% if not row.passes %}style="color: var(--bad); font-weight: 600"{% endif %}>{{ "Pass" if row.passes else "Fail" }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+<p><a href="{{ url_for('samples.list_rounds') }}">All sample rounds</a></p>
+{% endblock %}

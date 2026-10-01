@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Sample rounds{% endblock %}
+{% block content %}
+<h1>Sample rounds</h1>
+<p class="meta">To record a new round, open a style and pick the size the factory sampled.</p>
+{% if rounds %}
+<div class="scroll"><table>
+  <tr><th>Round</th><th>Style</th><th>Size</th><th>Stage</th><th>Recorded</th><th>Out of tolerance</th><th>Result</th></tr>
+  {% for item in rounds %}
+  {% set r = item.round %}
+  <tr>
+    <td><a href="{{ url_for('samples.show_round', round_id=r.id) }}">#{{ r.id }}</a></td>
+    <td class="text">{{ r.style_code }}</td>
+    <td class="text">{{ r.size_label }}</td>
+    <td class="text">{{ r.stage }}</td>
+    <td class="text">{{ r.recorded_at }}</td>
+    <td>{{ item.summary.failed }} / {{ item.summary.total }}</td>
+    <td class="text">{{ "Approved" if item.summary.approved else "Rejected" }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<p class="meta">No sample rounds recorded yet.</p>
+{% endif %}
+{% endblock %}
