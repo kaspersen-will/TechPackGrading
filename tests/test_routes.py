@@ -16,6 +16,12 @@ def make_jacket(client):
     return response.headers["Location"]  # /styles/<id>
 
 
+def test_health(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "ok"}
+
+
 def test_index_redirects_to_styles(client):
     assert client.get("/").headers["Location"] == "/styles"
 
