@@ -38,7 +38,7 @@ Each domain owns its own tables. Sample fit review reads specs only through a si
 
 ## Running locally
 
-Requires Python 3.9+.
+Requires Python 3.10+ (the pinned pytest 9 needs it) whose bundled SQLite is 3.37 or newer, because the tables are `STRICT`. Check with `python -c "import sqlite3; print(sqlite3.sqlite_version)"`.
 
 ```bash
 python -m venv .venv
@@ -67,22 +67,17 @@ All configuration is through environment variables. None are required.
 
 SQLite file at `$DATA_DIR/techpack.db`. It is created and initialized automatically on startup, with no manual migration step.
 
-## Configuration
-
-The app is configured entirely through environment variables:
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `PORT` | Port the server listens on (bound to `0.0.0.0`) | _TBD_ |
-| `DATA_DIR` | Directory where the SQLite database file is written | _TBD_ |
-
-## Setup and running
-
-_TBD: install and start commands will be added once the framework is chosen and implemented._
+To start from an empty database, stop the app and delete that file.
 
 ## Tests and coverage
 
-_TBD: the coverage command and current coverage result will be added here._
+```bash
+python -m pytest --cov
+```
+
+`pytest` and `pytest-cov` are in `requirements.txt`. `.coveragerc` measures only the app's own code and omits `tests/`.
+
+Result on 2026-10-02: 91 tests passed, 99% total coverage. The pure logic (`specs/grading.py`, `samples/review.py`, `units.py`) and both stores (`specs/store.py`, `samples/store.py`) are at 100%. The only uncovered lines are the `if __name__ == "__main__":` block in `app.py`, which reads `PORT` and `APP_DEBUG` and is checked by starting the app (see ADR-4).
 
 ## Project documents
 
