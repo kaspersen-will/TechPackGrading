@@ -6,9 +6,11 @@ spec values only through it, never from these tables directly.
 
 from specs.grading import GradingError, grade, validate_size_run
 
+# style.id is AUTOINCREMENT: sample_round.style_id (Domain 2) has no foreign key,
+# so a deleted style's id must never be handed to a new style (ADR-3).
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS style (
-    id        INTEGER PRIMARY KEY,
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
     code      TEXT NOT NULL UNIQUE,
     name      TEXT NOT NULL,
     base_size TEXT NOT NULL

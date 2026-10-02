@@ -84,3 +84,11 @@ def test_seam_style_without_poms(conn):
 
 def test_delete_missing_style(conn):
     assert delete_style(conn, 999) is False
+
+
+def test_deleted_style_id_is_never_reused(conn, jacket):
+    # Sample rounds keep style_id with no foreign key, so a reused id would
+    # silently attach an old round to a different style.
+    style_id, _ = jacket
+    delete_style(conn, style_id)
+    assert create_style(conn, "TR-002", "Trouser", ["M"], "M") != style_id
