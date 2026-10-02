@@ -21,3 +21,11 @@ Context: Separate jobs in the two domains (specs + grading / sample fit review),
 Decision: Domain 2 only reads domain 1 through get_graded_spec; each domain owns its own schema string, store module and template.
 Alternatives considered: Live lookup at report time --> an edited grade rule silently rewrites past verdicts. Snapshot at round creation, measurements later --> nullable measured_mm, half-entered rounds
 Consequences: Reports survive style deletion, one function turns it into a HTTP call later. However spec values are stored twice and correcting one doesn't overwrite old rounds.
+
+## 4. Testing Approach: Pure Logic First, Each Store Against Its Own Schema
+Date: 2026-10-02
+Status: Decided
+Context: Coverage has to reach 70% on the core logic of both domains, and the rules that would cost the label money if wrong are the grading math, the tolerance boundary and the all-or-nothing sample round. Domain 2 also has to stay testable without Domain 1
+Decision: Test the pure modules (grading.py, review.py, units.py) directly on boundary cases, test each store against a temporary SQLite file built from only its own SCHEMA, and keep Flask test-client tests for the 400/404 paths and the two cross-domain guarantees. Coverage is measured with tests/ omitted.
+Alternatives considered: Testing everything through the Flask test client. It reaches the same percentage, but a failure doesn't show whether the math, the SQL or the form parsing broke, and Domain 2's tests would need Domain 1's tables, which hides a seam violation. Mocking SQLite was also rejected, since STRICT types, foreign keys and cascades are behaviour I rely on and need to test for real.
+Consequences: test_review.py and test_samples_store.py move to Domain 2's service unchanged; only test_samples_routes.py, which spans both domains, needs rewriting. Templates and the __main__ block (PORT, APP_DEBUG) stay thin and are checked by hand, which is how a stray "+" in base.html passed all 89 tests.
