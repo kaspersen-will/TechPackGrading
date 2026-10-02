@@ -18,11 +18,6 @@ from units import cm_to_mm
 bp = Blueprint("specs", __name__, template_folder="templates", url_prefix="/styles")
 
 
-#@bp.app_template_filter("cm")
-#def cm_filter(mm):
-    #return "—" if mm is None else mm_to_cm(mm)
-
-
 def _connect():
     # closing() because `with conn:` only commits/rolls back; it never closes.
     return closing(db.get_connection(current_app.config["DATABASE"]))
