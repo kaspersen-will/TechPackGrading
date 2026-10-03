@@ -1,4 +1,4 @@
-# Tech Pack & Size Grading
+# Maison Grader — Tech Pack & Size Grading
 
 A web application that helps a small independent fashion label manage garment measurement specs and check factory samples against them.
 
