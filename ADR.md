@@ -31,9 +31,9 @@ Alternatives considered: Testing everything through the Flask test client. It re
 Consequences: test_review.py and test_samples_store.py move to Domain 2's service unchanged; only test_samples_routes.py, which spans both domains, needs rewriting. Templates and the __main__ block (PORT, APP_DEBUG) stay thin and are checked by hand, which is how a stray "+" in base.html passed all 89 tests.
 
 ## 5. Not Building Cross-Round Comparison
-Date: Decided 2026-09-28, Logged 2026-10-03 just in case I would do it
+Date: 2026-09-28
 Status: Decided
-Context: The production manager would want to see whether the factory fixed last round's failures, which means comparing proto, fit and pre-production results for the same style and size. I ended up not having enough time during the weekend to add this extension.
-Decision: Build uneven grade rules and the per-round summary and leave out cross-round comparison; each sample round is reviewed on its own.
-Alternatives considered: Building it. Rejected because I started the project too late and testing, debugging, and coverage was more important than adding another feature; since an untested comparison would put the Working Features and Testing grades at risk. It also needs a rule I hadn't decided: each round snapshots its own spec, so if a grade rule is edited between rounds, their targets differ, and it's unclear whether to compare measured values or deviations.
+Context: The production manager would want to see whether the factory fixed last round's failures, which means comparing proto, fit and pre-production results for the same style and size. When I planned the week, there was room to build and test two of my three candidate extensions alongside both domains, not all three.
+Decision: Build uneven grade rules and the per-round summary and leave out cross-round comparison; so instead each sample round is reviewed on its own.
+Alternatives considered: Building all three extensions. Rejected because the third had no slot in the plan once both domains, testing and the report were scheduled, and testing and debugging the two domains mattered more than another feature. Building it late with a day left was rejected because the snapshot had since raised a rule I hadn't decided: if a grade rule is edited between rounds, their targets differ, and it's unclear whether to compare measured values or deviations.
 Consequences: Rounds already store style_id, size_label and stage, so the comparison can be added later as a read-only query inside Domain 2 with no schema change. Until then the production manager compares rounds by opening them side by side.
