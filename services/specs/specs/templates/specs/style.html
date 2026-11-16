@@ -46,7 +46,7 @@
 
 {% if poms %}
 <h2>Record sample round</h2>
-<form class="inline" method="get" action="{{ url_for('samples.new_round') }}">
+<form class="inline" method="get" action="{{ samples_url }}/samples/new">
   <input type="hidden" name="style_id" value="{{ style.id }}">
   <label>Sampled size
     <select name="size">

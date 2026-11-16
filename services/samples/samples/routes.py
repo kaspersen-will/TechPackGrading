@@ -1,8 +1,8 @@
 """HTTP layer for Sample Fit Review. Parses cm form input to mm, calls the store, renders.
 
-This is the one place Domain 2 touches Domain 1: get_graded_spec and the
-GradingError it raises. In Assignment 2 these two imports become an HTTP
-call to the specs service; samples/store.py and samples/review.py don't change.
+This is the one place Domain 2 touches Domain 1, through specs_client
+(get_graded_spec and SpecError). samples/store.py and samples/review.py don't
+know the specs service exists.
 """
 
 from contextlib import closing
@@ -12,8 +12,7 @@ from flask import Blueprint, abort, current_app, redirect, render_template, requ
 import db
 from samples import store
 from samples.review import STAGES
-from specs.grading import GradingError
-from specs.store import get_graded_spec
+from samples.specs_client import SpecError, get_graded_spec
 from units import cm_to_mm
 
 bp = Blueprint("samples", __name__, template_folder="templates", url_prefix="/samples")
@@ -41,8 +40,8 @@ def new_round():
     style_id, size_label = _style_id(), request.args.get("size", "")
     with _connect() as conn:
         try:
-            spec = get_graded_spec(conn, style_id, size_label)
-        except GradingError as error:
+            spec = get_graded_spec(style_id, size_label)
+        except SpecError as error:
             return render_template("samples/rounds.html", rounds=store.list_rounds(conn),
                                    error=str(error)), 400
     return render_template("samples/new_round.html", spec=spec, style_id=style_id,
@@ -56,8 +55,8 @@ def record_round():
     with _connect() as conn:
         try:
             # Fetch the spec again on submit: it may have been edited since the form loaded.
-            spec = get_graded_spec(conn, style_id, size_label)
-        except GradingError as error:
+            spec = get_graded_spec(style_id, size_label)
+        except SpecError as error:
             return render_template("samples/rounds.html", rounds=store.list_rounds(conn),
                                    error=str(error)), 400
         try:
