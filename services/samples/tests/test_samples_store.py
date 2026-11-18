@@ -1,14 +1,14 @@
 """Domain 2's store, tested with only its own schema and a hand-built spec.
 
-No specs tables exist in this database: proof that Sample Fit Review
+No specs tables exist in this database (samples_test): proof that Sample Fit Review
 works without Domain 1's storage.
 """
 
 import pytest
+from conftest import count
 
-import db
 from samples.review import SampleError
-from samples.store import SCHEMA, get_round, list_rounds, record_round
+from samples.store import get_round, list_rounds, record_round
 
 SPEC = {
     "style_code": "FW26-JKT-014",
@@ -17,19 +17,6 @@ SPEC = {
         {"pom_id": 2, "code": "CH", "description": "Chest", "target_mm": 520, "tolerance_mm": 10},
     ],
 }
-
-
-@pytest.fixture
-def conn(tmp_path):
-    path = tmp_path / "test.db"
-    db.init_db(path, [SCHEMA])
-    connection = db.get_connection(path)
-    yield connection
-    connection.close()
-
-
-def count(conn, table):
-    return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
 def test_record_and_read_round(conn):

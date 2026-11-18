@@ -23,8 +23,8 @@ def fake_get_graded_spec(style_id, size_label):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+def client(database_url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setattr(routes, "get_graded_spec", fake_get_graded_spec)
     return create_app().test_client()
 

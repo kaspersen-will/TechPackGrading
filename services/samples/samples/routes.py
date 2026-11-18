@@ -19,7 +19,7 @@ bp = Blueprint("samples", __name__, template_folder="templates", url_prefix="/sa
 
 
 def _connect():
-    return closing(db.get_connection(current_app.config["DATABASE"]))
+    return closing(db.connect(current_app.config["DATABASE_URL"]))
 
 
 def _style_id():
