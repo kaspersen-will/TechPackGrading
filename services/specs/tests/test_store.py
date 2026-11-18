@@ -1,25 +1,14 @@
-import sqlite3
-
 import pytest
+from conftest import count
 
 import db
 from specs.grading import GradingError
 from specs.store import (
-    SCHEMA,
     add_point_of_measure,
     create_style,
     get_graded_spec,
     set_grade_rule,
 )
-
-
-@pytest.fixture
-def conn(tmp_path):
-    path = tmp_path / "test.db"
-    db.init_db(path, [SCHEMA])
-    connection = db.get_connection(path)
-    yield connection
-    connection.close()
 
 
 @pytest.fixture
@@ -29,12 +18,6 @@ def jacket(conn):
     for size, increment in [("S", 15), ("M", 20), ("L", 20), ("XL", 25)]:
         set_grade_rule(conn, chest, size, increment)
     return style_id, chest
-
-
-def test_init_db_can_run_twice(tmp_path):
-    path = tmp_path / "twice.db"
-    db.init_db(path, [SCHEMA])
-    db.init_db(path, [SCHEMA])
 
 
 def test_graded_spec_for_each_size(conn, jacket):
@@ -97,23 +80,34 @@ def test_tolerance_must_be_positive(conn, jacket):
 def test_invalid_size_run_writes_nothing(conn):
     with pytest.raises(GradingError):
         create_style(conn, "BAD-1", "Bad", ["S", "M"], "XL")
-    assert conn.execute("SELECT COUNT(*) FROM style").fetchone()[0] == 0
+    assert count(conn, "style") == 0
 
 
 def test_duplicate_style_code_rolls_back_sizes(conn, jacket):
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(db.IntegrityError):
         create_style(conn, "FW26-JKT-014", "Copy", ["S"], "S")
-    assert conn.execute("SELECT COUNT(*) FROM style_size").fetchone()[0] == 5
+    assert count(conn, "style_size") == 5
+
+
+def test_style_codes_are_case_sensitive(conn, jacket):
+    # BIN2 collation: SQL Server's default would treat this as a duplicate.
+    create_style(conn, "fw26-jkt-014", "Lowercase copy", ["S"], "S")
+    assert count(conn, "style") == 2
 
 
 def test_foreign_keys_enforced(conn):
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(db.IntegrityError):
         add_point_of_measure(conn, 999, "CH", "Chest", 520, 10)
 
 
-def test_strict_table_rejects_fractional_mm(conn, jacket):
-    with pytest.raises(sqlite3.IntegrityError):
+def test_fractional_mm_rejected_before_sql_server_truncates_it(conn, jacket):
+    with pytest.raises(GradingError):
         add_point_of_measure(conn, jacket[0], "SH", "Shoulder", 452.5, 10)
+    with pytest.raises(GradingError):
+        set_grade_rule(conn, jacket[1], "L", 20.5)
+    assert count(conn, "point_of_measure") == 1
+
+
 
 def test_each_point_of_measure_uses_its_own_rules(conn, jacket):
     style_id, _ = jacket
@@ -123,3 +117,8 @@ def test_each_point_of_measure_uses_its_own_rules(conn, jacket):
     graded = get_graded_spec(conn, style_id, "XL")["poms"]
     spec = {row["code"]: row["target_mm"] for row in graded}
     assert spec == {"CH": 565, "SL": 665}
+
+
+def test_size_labels_are_case_sensitive(conn, jacket):
+    with pytest.raises(GradingError):
+        get_graded_spec(conn, jacket[0], "m")

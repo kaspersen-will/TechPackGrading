@@ -1,20 +1,16 @@
 import pytest
+from conftest import count
 
-import db
-from specs.store import (
-    SCHEMA, add_point_of_measure, create_style, delete_style, get_graded_spec,
-    get_style, list_styles, set_grade_rule,
-)
 from specs.grading import GradingError
-
-
-@pytest.fixture
-def conn(tmp_path):
-    path = tmp_path / "test.db"
-    db.init_db(path, [SCHEMA])
-    conn = db.get_connection(path)
-    yield conn
-    conn.close()
+from specs.store import (
+    add_point_of_measure,
+    create_style,
+    delete_style,
+    get_graded_spec,
+    get_style,
+    list_styles,
+    set_grade_rule,
+)
 
 
 @pytest.fixture
@@ -66,7 +62,7 @@ def test_delete_style_cascades_inside_domain_1(conn, jacket):
     style_id, _ = jacket
     assert delete_style(conn, style_id) is True
     for table in ("style", "style_size", "point_of_measure", "grade_rule"):
-        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        assert count(conn, table) == 0
 
 
 def test_delete_style_then_seam_raises(conn, jacket):

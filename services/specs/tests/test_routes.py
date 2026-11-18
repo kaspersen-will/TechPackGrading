@@ -4,8 +4,8 @@ from app import create_app
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+def client(database_url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", database_url)
     return create_app().test_client()
 
 

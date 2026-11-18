@@ -1,11 +1,9 @@
 """HTTP layer for Specs & Grading. Parses cm form input to mm, calls the store, renders.
 
-
 No grading math lives here. Errors re-render the page with a 400 instead of
 using flash(), so the app needs no sessions and no SECRET_KEY.
 """
 
-import sqlite3
 from contextlib import closing
 
 from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
@@ -20,7 +18,7 @@ bp = Blueprint("specs", __name__, template_folder="templates", url_prefix="/styl
 
 def _connect():
     # closing() because `with conn:` only commits/rolls back; it never closes.
-    return closing(db.get_connection(current_app.config["DATABASE"]))
+    return closing(db.connect(current_app.config["DATABASE_URL"]))
 
 
 def _style_or_404(conn, style_id):
@@ -46,7 +44,7 @@ def create_style():
                 conn, form.get("code", "").strip(), form.get("name", "").strip(),
                 sizes, form.get("base_size", "").strip(),
             )
-        except (GradingError, sqlite3.IntegrityError) as error:
+        except (GradingError, db.IntegrityError) as error:
             return render_template(
                 "specs/styles.html", styles=store.list_styles(conn),
                 error=_message(error), form=form,
@@ -70,7 +68,7 @@ def add_pom(style_id):
                 conn, style_id, form.get("code", "").strip(), form.get("description", "").strip(),
                 cm_to_mm(form.get("base_value_cm", "")), cm_to_mm(form.get("tolerance_cm", "")),
             )
-        except (ValueError, sqlite3.IntegrityError) as error:
+        except (ValueError, db.IntegrityError) as error:
             return render_template("specs/style.html", **data, error=_message(error)), 400
     return redirect(url_for("specs.show_style", style_id=style_id))
 
@@ -104,6 +102,6 @@ def delete_style(style_id):
 
 
 def _message(error):
-    if isinstance(error, sqlite3.IntegrityError):
+    if isinstance(error, db.IntegrityError):
         return "That code is already used."
     return str(error)

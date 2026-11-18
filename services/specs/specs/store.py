@@ -1,92 +1,70 @@
-"""SQLite access for the Specs & Grading domain. All lengths are integer mm.
+"""SQL Server access for the Specs & Grading service. All lengths are integer mm.
 
-get_graded_spec is the seam: the Sample Fit Review domain reads
-spec values only through it, never from these tables directly.
+get_graded_spec is the seam: the samples service reads spec values only
+through it (over HTTP from Wednesday), never from these tables directly.
 """
 
 from specs.grading import GradingError, grade, validate_size_run
 
-# style.id is AUTOINCREMENT: sample_round.style_id (Domain 2) has no foreign key,
-# so a deleted style's id must never be handed to a new style (ADR-3).
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS style (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    code      TEXT NOT NULL UNIQUE,
-    name      TEXT NOT NULL,
-    base_size TEXT NOT NULL
-) STRICT;
+# The tables are defined by migrations/001_init.sql, applied by migrate.py.
+# style.id is IDENTITY: sample_round.style_id (the samples service) has no foreign
+# key, so a deleted style's id must never be handed to a new style (ADR-3).
 
-CREATE TABLE IF NOT EXISTS style_size (
-    id       INTEGER PRIMARY KEY,
-    style_id INTEGER NOT NULL REFERENCES style(id) ON DELETE CASCADE,
-    label    TEXT NOT NULL,
-    position INTEGER NOT NULL,
-    UNIQUE (style_id, label),
-    UNIQUE (style_id, position)
-) STRICT;
 
-CREATE TABLE IF NOT EXISTS point_of_measure (
-    id            INTEGER PRIMARY KEY,
-    style_id      INTEGER NOT NULL REFERENCES style(id) ON DELETE CASCADE,
-    code          TEXT NOT NULL,
-    description   TEXT NOT NULL,
-    base_value_mm INTEGER NOT NULL,
-    tolerance_mm  INTEGER NOT NULL,
-    UNIQUE (style_id, code)
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS grade_rule (
-    pom_id       INTEGER NOT NULL REFERENCES point_of_measure(id) ON DELETE CASCADE,
-    size_id      INTEGER NOT NULL REFERENCES style_size(id) ON DELETE CASCADE,
-    increment_mm INTEGER NOT NULL,
-    PRIMARY KEY (pom_id, size_id)
-) STRICT;
-"""
+def _require_whole_mm(*values):
+    # SQLite's STRICT tables rejected 452.5 in an INTEGER column; SQL Server's INT
+    # silently truncates it to 452, so the check moved here.
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise GradingError(f"{value!r} is not a whole number of mm")
 
 
 def create_style(conn, code, name, sizes, base_size):
     validate_size_run(sizes, base_size)
     with conn:
-        cur = conn.execute(
-            "INSERT INTO style (code, name, base_size) VALUES (?, ?, ?)",
+        style_id = conn.execute(
+            "INSERT INTO style (code, name, base_size) OUTPUT INSERTED.id VALUES (%s, %s, %s)",
             (code, name, base_size),
-        )
-        style_id = cur.lastrowid
+        ).fetchone()["id"]
         conn.executemany(
-            "INSERT INTO style_size (style_id, label, position) VALUES (?, ?, ?)",
+            "INSERT INTO style_size (style_id, label, position) VALUES (%s, %s, %s)",
             [(style_id, label, position) for position, label in enumerate(sizes)],
         )
     return style_id
 
 
 def add_point_of_measure(conn, style_id, code, description, base_value_mm, tolerance_mm):
+    _require_whole_mm(base_value_mm, tolerance_mm)
     if tolerance_mm <= 0:
         raise GradingError("tolerance must be greater than zero")
     with conn:
-        cur = conn.execute(
+        return conn.execute(
             "INSERT INTO point_of_measure"
             " (style_id, code, description, base_value_mm, tolerance_mm)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " OUTPUT INSERTED.id VALUES (%s, %s, %s, %s, %s)",
             (style_id, code, description, base_value_mm, tolerance_mm),
-        )
-    return cur.lastrowid
+        ).fetchone()["id"]
 
 
 def set_grade_rule(conn, pom_id, size_label, increment_mm):
+    _require_whole_mm(increment_mm)
     size = conn.execute(
         "SELECT s.id, s.position FROM style_size s"
         " JOIN point_of_measure p ON p.style_id = s.style_id"
-        " WHERE p.id = ? AND s.label = ?",
+        " WHERE p.id = %s AND s.label = %s",
         (pom_id, size_label),
     ).fetchone()
     if size is None:
         raise GradingError(f"size {size_label!r} is not in this point of measure's style")
     if size["position"] == 0:
         raise GradingError("the smallest size has no size below it, so it takes no grade rule")
+    # SQL Server has no INSERT OR REPLACE: update the rule, insert it if there was none.
     with conn:
         conn.execute(
-            "INSERT OR REPLACE INTO grade_rule (pom_id, size_id, increment_mm) VALUES (?, ?, ?)",
-            (pom_id, size["id"], increment_mm),
+            "UPDATE grade_rule SET increment_mm = %s WHERE pom_id = %s AND size_id = %s;"
+            " IF @@ROWCOUNT = 0"
+            " INSERT INTO grade_rule (pom_id, size_id, increment_mm) VALUES (%s, %s, %s);",
+            (increment_mm, pom_id, size["id"], pom_id, size["id"], increment_mm),
         )
 
 
@@ -101,9 +79,9 @@ def get_graded_spec(conn, style_id, size_label):
         "SELECT st.code AS style_code,"
         " target.position AS target_position, base.position AS base_position"
         " FROM style st"
-        " JOIN style_size target ON target.style_id = st.id AND target.label = ?"
+        " JOIN style_size target ON target.style_id = st.id AND target.label = %s"
         " JOIN style_size base ON base.style_id = st.id AND base.label = st.base_size"
-        " WHERE st.id = ?",
+        " WHERE st.id = %s",
         (size_label, style_id),
     ).fetchone()
 
@@ -113,7 +91,7 @@ def get_graded_spec(conn, style_id, size_label):
     rules = conn.execute(
         "SELECT r.pom_id, s.position, r.increment_mm FROM grade_rule r"
         " JOIN style_size s ON s.id = r.size_id"
-        " WHERE s.style_id = ?",
+        " WHERE s.style_id = %s",
         (style_id,),
     ).fetchall()
 
@@ -123,7 +101,7 @@ def get_graded_spec(conn, style_id, size_label):
 
     poms = conn.execute(
         "SELECT id, code, description, base_value_mm, tolerance_mm"
-        " FROM point_of_measure WHERE style_id = ? ORDER BY code",
+        " FROM point_of_measure WHERE style_id = %s ORDER BY code",
         (style_id,),
     ).fetchall()
 
@@ -145,46 +123,46 @@ def get_graded_spec(conn, style_id, size_label):
     return {"style_code": positions["style_code"], "poms": graded}
 
 # ---- Read/delete functions for Domain 1's own pages. ----
-# Domain 2's only entry point is get_graded_spec.
- 
+# The samples service's only entry point is get_graded_spec.
+
  
 def list_styles(conn):
     return conn.execute("SELECT id, code, name, base_size FROM style ORDER BY code").fetchall()
- 
+
  
 def get_style(conn, style_id):
     """Everything the style page shows, or None if the style doesn't exist.
- 
+
     rules maps pom_id -> {size label: increment_mm}.
     size_run maps pom_id -> {size label: target_mm, or None if a rule is missing}.
     """
     style = conn.execute(
-        "SELECT id, code, name, base_size FROM style WHERE id = ?", (style_id,)
+        "SELECT id, code, name, base_size FROM style WHERE id = %s", (style_id,)
     ).fetchone()
     if style is None:
         return None
- 
+
     sizes = conn.execute(
-        "SELECT label, position FROM style_size WHERE style_id = ? ORDER BY position",
+        "SELECT label, position FROM style_size WHERE style_id = %s ORDER BY position",
         (style_id,),
     ).fetchall()
     poms = conn.execute(
         "SELECT id, code, description, base_value_mm, tolerance_mm"
-        " FROM point_of_measure WHERE style_id = ? ORDER BY code",
+        " FROM point_of_measure WHERE style_id = %s ORDER BY code",
         (style_id,),
     ).fetchall()
     rule_rows = conn.execute(
         "SELECT r.pom_id, s.label, s.position, r.increment_mm FROM grade_rule r"
-        " JOIN style_size s ON s.id = r.size_id WHERE s.style_id = ?",
+        " JOIN style_size s ON s.id = r.size_id WHERE s.style_id = %s",
         (style_id,),
     ).fetchall()
- 
+
     rules = {pom["id"]: {} for pom in poms}
     by_position = {pom["id"]: {} for pom in poms}
     for row in rule_rows:
         rules[row["pom_id"]][row["label"]] = row["increment_mm"]
         by_position[row["pom_id"]][row["position"]] = row["increment_mm"]
- 
+
     base_position = next(s["position"] for s in sizes if s["label"] == style["base_size"])
     size_run = {}
     for pom in poms:
@@ -196,17 +174,24 @@ def get_style(conn, style_id):
             except GradingError:
                 target = None
             size_run[pom["id"]][size["label"]] = target
- 
+
     return {"style": style, "sizes": sizes, "poms": poms, "rules": rules, "size_run": size_run}
- 
+
  
 def delete_style(conn, style_id):
-    """Delete a style; ON DELETE CASCADE removes its sizes, POMs and grade rules.
- 
-    Knows nothing about sample rounds: Domain 2 copes with its own leftovers.
+    """Delete a style with its sizes, POMs and grade rules, in one transaction.
+
+    The grade rules go first: only their point-of-measure key cascades (see
+    001_init.sql), so deleting the sizes would otherwise be blocked. Knows
+    nothing about sample rounds: the samples service copes with its own leftovers.
     Returns False if there was no such style.
     """
     with conn:
-        cur = conn.execute("DELETE FROM style WHERE id = ?", (style_id,))
-    return cur.rowcount == 1
+        conn.execute(
+            "DELETE r FROM grade_rule AS r"
+            " JOIN point_of_measure AS p ON p.id = r.pom_id WHERE p.style_id = %s",
+            (style_id,),
+        )
+        deleted = conn.execute("DELETE FROM style WHERE id = %s", (style_id,)).rowcount
+    return deleted == 1
  
