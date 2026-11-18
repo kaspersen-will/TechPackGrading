@@ -38,46 +38,54 @@ Each domain owns its own tables. Sample fit review reads specs only through a si
 
 ## Running locally
 
-Requires Python 3.10+ (the pinned pytest 9 needs it) whose bundled SQLite is 3.37 or newer, because the tables are `STRICT`. Check with `python -c "import sqlite3; print(sqlite3.sqlite_version)"`.
+Assignment 2 splits the app into two services, `services/specs` (port 8000) and `services/samples` (port 8001), each with its own SQL Server database. Full `docker compose up` of the whole system arrives with the Dockerfiles; for now compose runs the database and each service runs with Python.
+
+Requires Docker Desktop (on Apple Silicon, turn on "Use Rosetta for x86_64/amd64 emulation") and Python 3.10+.
+
+**1. Start SQL Server and create the databases and logins**
 
 ```bash
-python -m venv .venv
-# macOS/Linux:
-source .venv/bin/activate
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-
-pip install -r requirements.txt
-python app.py
+docker compose up -d mssql db-init
+docker compose logs db-init        # ends with "databases and logins ready"
 ```
 
-The app starts on http://localhost:8000. Check it with `GET /health`, which returns `{"status": "ok"}`.
+`db/init.sql` creates `specs`, `samples` and a `_test` database for each, plus one login per service that can only reach its own databases. Data lives in the `mssql-data` volume and survives `docker compose down`; `docker compose down -v` deletes it.
+
+**2. Run a service** (same for `samples`, with `samples_user`, `LocalOnly_samples_2026`, `/samples` and `PORT=8001`)
+
+```bash
+cd services/specs
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+export DATABASE_URL='mssql://specs_user:LocalOnly_specs_2026@localhost:1433/specs'
+python app.py                      # applies pending migrations, then serves on :8000
+```
+
+The passwords are local-only defaults from `docker-compose.yml`; override them in a git-ignored `.env` file.
 
 ### Configuration
 
-All configuration is through environment variables. None are required.
-
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `8000` | Port the server listens on (binds to `0.0.0.0`) |
-| `DATA_DIR` | `./data` (next to `app.py`) | Directory for the SQLite database; created if missing |
-| `APP_DEBUG` | `0` | Set to `1` to enable Flask debug mode (local development only) |
+| `DATABASE_URL` | none (required) | `mssql://user:password@host:1433/database` of this service's own database |
+| `PORT` | `8000` specs, `8001` samples | Port the server listens on |
+| `SPECS_URL` / `SAMPLES_URL` | `http://localhost:8000` / `:8001` | Where the other service is |
+| `DB_CONNECT_TIMEOUT_S` | `90` | How long to keep retrying while the database is starting or resuming |
+| `APP_DEBUG` | `0` | Set to `1` for Flask debug mode (local development only) |
 
-### Database
+### Migrations
 
-SQLite file at `$DATA_DIR/techpack.db`. It is created and initialized automatically on startup, with no manual migration step.
-
-To start from an empty database, stop the app and delete that file.
+Each service's schema is defined by `services/<name>/migrations/NNN_name.sql`. `python migrate.py` (also run by `python app.py` before it starts) applies the pending files in order, each once and in its own transaction, and records them in `schema_migrations` with a checksum. Applied files are never edited: a change goes in a new numbered file.
 
 ## Tests and coverage
 
+Tests that need a database run against the `_test` databases, which they wipe; without `TEST_DATABASE_URL` they are skipped.
+
 ```bash
+cd services/specs
+export TEST_DATABASE_URL='mssql://specs_user:LocalOnly_specs_2026@localhost:1433/specs_test'
 python -m pytest --cov
 ```
-
-`pytest` and `pytest-cov` are in `requirements.txt`. `.coveragerc` measures only the app's own code and omits `tests/`.
-
-Result on 2026-10-02: 91 tests passed, 99% total coverage. The pure logic (`specs/grading.py`, `samples/review.py`, `units.py`) and both stores (`specs/store.py`, `samples/store.py`) are at 100%. The only uncovered lines are the `if __name__ == "__main__":` block in `app.py`, which reads `PORT` and `APP_DEBUG` and is checked by starting the app (see ADR-4).
 
 ## Project documents
 
