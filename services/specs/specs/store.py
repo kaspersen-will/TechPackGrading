@@ -11,6 +11,10 @@ from specs.grading import GradingError, grade, validate_size_run
 # key, so a deleted style's id must never be handed to a new style (ADR-3).
 
 
+class UnknownStyleOrSize(GradingError):
+    """get_graded_spec was asked for a style or size that doesn't exist (HTTP 404)."""
+
+
 def _require_whole_mm(*values):
     # SQLite's STRICT tables rejected 452.5 in an INTEGER column; SQL Server's INT
     # silently truncates it to 452, so the check moved here.
@@ -86,7 +90,7 @@ def get_graded_spec(conn, style_id, size_label):
     ).fetchone()
 
     if positions is None:
-        raise GradingError(f"style {style_id} has no size {size_label!r}")
+        raise UnknownStyleOrSize(f"style {style_id} has no size {size_label!r}")
 
     rules = conn.execute(
         "SELECT r.pom_id, s.position, r.increment_mm FROM grade_rule r"

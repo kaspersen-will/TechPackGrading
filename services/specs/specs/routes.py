@@ -1,19 +1,19 @@
-"""HTTP layer for Specs & Grading. Parses cm form input to mm, calls the store, renders.
+"""JSON API for Specs & Grading. Every length is integer mm; the UI converts to cm.
 
-No grading math lives here. Errors re-render the page with a 400 instead of
-using flash(), so the app needs no sessions and no SECRET_KEY.
+No grading math lives here. Status codes: 400 for a body that can't be used,
+404 for an unknown id, 409 for a duplicate code, 422 for a spec that can't be
+graded yet (a grade rule is missing).
 """
 
 from contextlib import closing
 
-from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, jsonify, request
 
 import db
 from specs import store
 from specs.grading import GradingError
-from units import cm_to_mm
 
-bp = Blueprint("specs", __name__, template_folder="templates", url_prefix="/styles")
+bp = Blueprint("specs", __name__, url_prefix="/styles")
 
 
 def _connect():
@@ -21,87 +21,118 @@ def _connect():
     return closing(db.connect(current_app.config["DATABASE_URL"]))
 
 
+def _body():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        abort(400, "the body must be a JSON object")
+    return body
+
+
+def _text(body, field):
+    value = body.get(field)
+    if not isinstance(value, str) or not value.strip():
+        abort(400, f"{field} is required")
+    return value.strip()
+
+
 def _style_or_404(conn, style_id):
     data = store.get_style(conn, style_id)
     if data is None:
-        abort(404)
+        abort(404, f"no style {style_id}")
     return data
 
 
 @bp.get("")
 def list_styles():
     with _connect() as conn:
-        return render_template("specs/styles.html", styles=store.list_styles(conn))
+        return jsonify(store.list_styles(conn))
 
 
 @bp.post("")
 def create_style():
-    form = request.form
-    sizes = [s.strip() for s in form.get("sizes", "").split(",") if s.strip()]
+    body = _body()
+    sizes = body.get("sizes")
+    if not isinstance(sizes, list) or not all(isinstance(s, str) for s in sizes):
+        abort(400, "sizes must be a list of size labels, smallest first")
     with _connect() as conn:
         try:
             style_id = store.create_style(
-                conn, form.get("code", "").strip(), form.get("name", "").strip(),
-                sizes, form.get("base_size", "").strip(),
+                conn, _text(body, "code"), _text(body, "name"),
+                [s.strip() for s in sizes], _text(body, "base_size"),
             )
-        except (GradingError, db.IntegrityError) as error:
-            return render_template(
-                "specs/styles.html", styles=store.list_styles(conn),
-                error=_message(error), form=form,
-            ), 400
-    return redirect(url_for("specs.show_style", style_id=style_id))
+        except GradingError as error:
+            abort(400, str(error))
+        except db.IntegrityError:
+            abort(409, "that style code is already used")
+    return jsonify(id=style_id), 201, {"Location": f"/styles/{style_id}"}
 
 
 @bp.get("/<int:style_id>")
 def show_style(style_id):
     with _connect() as conn:
-        return render_template("specs/style.html", **_style_or_404(conn, style_id))
+        data = _style_or_404(conn, style_id)
+    # One list of POMs, each carrying its own rules and size run, instead of
+    # dicts keyed by pom id (JSON object keys can only be strings).
+    poms = [
+        {**pom, "rules": data["rules"][pom["id"]], "size_run": data["size_run"][pom["id"]]}
+        for pom in data["poms"]
+    ]
+    return jsonify(style=data["style"], sizes=[s["label"] for s in data["sizes"]], poms=poms)
+
+
+@bp.delete("/<int:style_id>")
+def delete_style(style_id):
+    with _connect() as conn:
+        if not store.delete_style(conn, style_id):
+            abort(404, f"no style {style_id}")
+    return "", 204
 
 
 @bp.post("/<int:style_id>/poms")
 def add_pom(style_id):
-    form = request.form
+    body = _body()
     with _connect() as conn:
-        data = _style_or_404(conn, style_id)
+        _style_or_404(conn, style_id)
         try:
-            store.add_point_of_measure(
-                conn, style_id, form.get("code", "").strip(), form.get("description", "").strip(),
-                cm_to_mm(form.get("base_value_cm", "")), cm_to_mm(form.get("tolerance_cm", "")),
+            pom_id = store.add_point_of_measure(
+                conn, style_id, _text(body, "code"), _text(body, "description"),
+                body.get("base_value_mm"), body.get("tolerance_mm"),
             )
-        except (ValueError, db.IntegrityError) as error:
-            return render_template("specs/style.html", **data, error=_message(error)), 400
-    return redirect(url_for("specs.show_style", style_id=style_id))
+        except GradingError as error:
+            abort(400, str(error))
+        except db.IntegrityError:
+            abort(409, "that point of measure code is already used on this style")
+    return jsonify(id=pom_id), 201
 
 
-@bp.post("/<int:style_id>/poms/<int:pom_id>/rules")
+@bp.put("/<int:style_id>/poms/<int:pom_id>/rules")
 def set_rules(style_id, pom_id):
+    increments = _body().get("increments_mm")
+    if not isinstance(increments, dict):
+        abort(400, "increments_mm must map size labels to whole mm")
     with _connect() as conn:
         data = _style_or_404(conn, style_id)
         if pom_id not in data["rules"]:
-            abort(404)
-        try:
-            # Parse every field before writing any, so one bad cell saves nothing.
-            increments = {
-                size["label"]: cm_to_mm(request.form[f"inc_{size['label']}"])
-                for size in data["sizes"][1:]
-                if request.form.get(f"inc_{size['label']}", "").strip()
-            }
-            for label, increment_mm in increments.items():
-                store.set_grade_rule(conn, pom_id, label, increment_mm)
-        except ValueError as error:
-            return render_template("specs/style.html", **data, error=_message(error)), 400
-    return redirect(url_for("specs.show_style", style_id=style_id))
+            abort(404, f"style {style_id} has no point of measure {pom_id}")
+        # Check every value before writing any, so one bad value saves nothing.
+        gradable = {s["label"] for s in data["sizes"][1:]}
+        for label, increment_mm in increments.items():
+            if label not in gradable:
+                abort(400, f"{label!r} is not a size of this style that takes a grade rule")
+            if isinstance(increment_mm, bool) or not isinstance(increment_mm, int):
+                abort(400, f"{label}: {increment_mm!r} is not a whole number of mm")
+        for label, increment_mm in increments.items():
+            store.set_grade_rule(conn, pom_id, label, increment_mm)
+    return "", 204
 
 
-@bp.post("/<int:style_id>/delete")
-def delete_style(style_id):
+@bp.get("/<int:style_id>/spec/<size_label>")
+def graded_spec(style_id, size_label):
+    """The seam. The samples service calls this before it records a round."""
     with _connect() as conn:
-        if not store.delete_style(conn, style_id):
-            abort(404)
-    return redirect(url_for("specs.list_styles"))
-
-
-def _message(error):
-    if isinstance(error, db.IntegrityError):
-        return "That code is already used."
-    return str(error)
+        try:
+            return jsonify(store.get_graded_spec(conn, style_id, size_label))
+        except store.UnknownStyleOrSize as error:
+            abort(404, str(error))
+        except GradingError as error:
+            abort(422, str(error))

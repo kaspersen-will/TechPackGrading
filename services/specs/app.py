@@ -2,11 +2,11 @@ import logging
 import os
 import sys
 
-from flask import Flask, redirect, url_for
+from flask import Flask
 
 import migrate
+import web
 from specs.routes import bp as specs_bp
-from units import mm_to_cm
 
 
 def create_app():
@@ -16,27 +16,9 @@ def create_app():
     if not os.environ.get("DATABASE_URL"):
         raise RuntimeError("DATABASE_URL is not set")
     app.config["DATABASE_URL"] = os.environ["DATABASE_URL"]
-    # Where the other service lives. Only used for links until the static UI replaces the templates.
-    app.config["SAMPLES_URL"] = os.environ.get("SAMPLES_URL", "http://localhost:8001")
 
+    web.install(app)  # request logs, CORS for UI_ORIGIN, JSON errors, /health
     app.register_blueprint(specs_bp)
-
-    @app.template_filter("cm")
-    def cm(mm):
-        return "—" if mm is None else mm_to_cm(mm)
-
-    @app.context_processor
-    def other_service():
-        return {"samples_url": app.config["SAMPLES_URL"]}
-
-    @app.route("/health")
-    def health():
-        return {"status": "ok"}
-
-    @app.route("/")
-    def index():
-        return redirect(url_for("specs.list_styles"))
-
     return app
 
 

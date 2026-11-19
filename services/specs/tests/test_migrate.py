@@ -45,7 +45,7 @@ def test_missing_migration_file_stops_startup(tmp_path):
 
 
 def test_shipped_migrations_are_valid():
-    assert migrate.read_migrations()[0][0] == "001_init.sql"
+    assert [m[0] for m in migrate.read_migrations()][:2] == ["001_init.sql", "002_health_check.sql"]
 
 
 # ---- Against SQL Server. The conn fixture has already applied every migration. ----
@@ -65,7 +65,7 @@ def test_new_migration_keeps_existing_rows(conn, tmp_path):
     assert migrate.migrate(conn, tmp_path) == ["999_add_note.sql"]
     row = conn.execute("SELECT code, note FROM style").fetchone()
     assert row == {"code": "JK-1", "note": "none"}
-    assert count(conn, "schema_migrations") == 2
+    assert count(conn, "schema_migrations") == len(migrate.read_migrations()) + 1
 
 
 def test_failed_migration_leaves_nothing_behind(conn, tmp_path):
@@ -76,4 +76,4 @@ def test_failed_migration_leaves_nothing_behind(conn, tmp_path):
     with pytest.raises(pymssql.DatabaseError):
         migrate.migrate(conn, tmp_path)
     assert conn.execute("SELECT OBJECT_ID(N'half_done') AS id").fetchone()["id"] is None
-    assert count(conn, "schema_migrations") == 1
+    assert count(conn, "schema_migrations") == len(migrate.read_migrations())
