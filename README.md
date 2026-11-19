@@ -38,14 +38,14 @@ Each domain owns its own tables. Sample fit review reads specs only through a si
 
 ## Running locally
 
-Assignment 2 splits the app into two services, `services/specs` (port 8000) and `services/samples` (port 8001), each with its own SQL Server database. Full `docker compose up` of the whole system arrives with the Dockerfiles; for now compose runs the database and each service runs with Python.
+Assignment 2 splits the app into two services, `services/specs` (port 8000) and `services/samples` (port 8001), each with its own SQL Server database and a JSON API, plus a static UI in `ui/` that calls both from the browser. Full `docker compose up` of the whole system arrives with the Dockerfiles; for now compose runs the database and the UI, and each service runs with Python.
 
 Requires Docker Desktop (on Apple Silicon, turn on "Use Rosetta for x86_64/amd64 emulation") and Python 3.10+.
 
 **1. Start SQL Server and create the databases and logins**
 
 ```bash
-docker compose up -d mssql db-init
+docker compose up -d mssql db-init ui
 docker compose logs db-init        # ends with "databases and logins ready"
 ```
 
@@ -63,13 +63,19 @@ python app.py                      # applies pending migrations, then serves on 
 
 The passwords are local-only defaults from `docker-compose.yml`; override them in a git-ignored `.env` file.
 
+**3. Open the UI** at http://localhost:8080 (use `localhost`, not `127.0.0.1`: CORS allows exactly `UI_ORIGIN`). `ui/config.js` holds the two service URLs; the deploy workflow overwrites it with the Azure ones.
+
 ### Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | none (required) | `mssql://user:password@host:1433/database` of this service's own database |
 | `PORT` | `8000` specs, `8001` samples | Port the server listens on |
-| `SPECS_URL` / `SAMPLES_URL` | `http://localhost:8000` / `:8001` | Where the other service is |
+| `SPECS_URL` | `http://localhost:8000` | samples only: where the specs service is |
+| `SPECS_TIMEOUT_S` | `5` | samples only: how long to wait for specs before answering 503 |
+| `UI_ORIGIN` | `http://localhost:8080` | The only browser origin allowed to call the service (CORS) |
+| `GIT_SHA` | `dev` | Version reported by `/health` (set to the commit SHA on deploy) |
+| `HEALTH_DB_TIMEOUT_S` | `5` | How long `/health` keeps retrying the database before answering 503 |
 | `DB_CONNECT_TIMEOUT_S` | `90` | How long to keep retrying while the database is starting or resuming |
 | `APP_DEBUG` | `0` | Set to `1` for Flask debug mode (local development only) |
 

@@ -1,6 +1,6 @@
-# Local system. For now: SQL Server and the one-off script that creates the
-# databases and logins. The two services and nginx (serving ui/) join once
-# they have Dockerfiles.
+# Local system. For now: SQL Server, the one-off script that creates the
+# databases and logins, and nginx serving the static UI in ui/. The two
+# services join once they have Dockerfiles; until then run them with Python (README).
 #
 # The passwords below are local-only defaults for a database that exists only
 # on this machine and is never reachable from outside it (port bound to
@@ -53,6 +53,14 @@ services:
         -i /db/init.sql
         -v SPECS_DB_PASSWORD="$$SPECS_DB_PASSWORD" SAMPLES_DB_PASSWORD="$$SAMPLES_DB_PASSWORD"
     restart: "no"
+
+  # Not a service container: a stock web server with ui/ mounted, no Dockerfile.
+  ui:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8080:80"  # open http://localhost:8080 (the origin both services allow by default)
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
 
 volumes:
   mssql-data:
