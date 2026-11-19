@@ -2,11 +2,11 @@ import logging
 import os
 import sys
 
-from flask import Flask, redirect, url_for
+from flask import Flask
 
 import migrate
+import web
 from samples.routes import bp as samples_bp
-from units import mm_to_cm
 
 
 def create_app():
@@ -16,27 +16,12 @@ def create_app():
     if not os.environ.get("DATABASE_URL"):
         raise RuntimeError("DATABASE_URL is not set")
     app.config["DATABASE_URL"] = os.environ["DATABASE_URL"]
-    # Where the other service lives. specs_client will call it; templates link to it.
+    # Where the specs service is, and how long to wait for it before answering 503.
     app.config["SPECS_URL"] = os.environ.get("SPECS_URL", "http://localhost:8000")
+    app.config["SPECS_TIMEOUT_S"] = float(os.environ.get("SPECS_TIMEOUT_S", "5"))
 
+    web.install(app)  # request logs, CORS for UI_ORIGIN, JSON errors, /health
     app.register_blueprint(samples_bp)
-
-    @app.template_filter("cm")
-    def cm(mm):
-        return "—" if mm is None else mm_to_cm(mm)
-
-    @app.context_processor
-    def other_service():
-        return {"specs_url": app.config["SPECS_URL"]}
-
-    @app.route("/health")
-    def health():
-        return {"status": "ok"}
-
-    @app.route("/")
-    def index():
-        return redirect(url_for("samples.list_rounds"))
-
     return app
 
 

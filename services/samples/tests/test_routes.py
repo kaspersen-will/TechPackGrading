@@ -1,83 +1,91 @@
-"""Samples' own routes, with the specs service replaced by a fake get_graded_spec.
-
-The real call across the seam is tested in tests/integration/ at the repo root.
+"""The cross-seam flow end to end: samples' real API and database, specs replaced
+by a stub HTTP server (tests/stub_specs.py). DB tests skip without TEST_DATABASE_URL;
+the specs-down and bad-input cases need no database and always run.
 """
 
 import pytest
+from stub_specs import nothing_listening, specs  # noqa: F401 (fixtures)
 
 from app import create_app
-from samples import routes
-from samples.specs_client import SpecError
 
-# Chest 54.0 cm at L, tolerance 1.0 cm: what specs would return for JK-014 size L.
-SPEC_L = {
-    "style_code": "JK-014",
-    "poms": [{"pom_id": 1, "code": "CH", "description": "Chest", "target_mm": 540, "tolerance_mm": 10}],
-}
+ROUND = {"style_id": 1, "size": "L", "stage": "fit", "measured_mm": {"CH": 555}}
 
 
-def fake_get_graded_spec(style_id, size_label):
-    if style_id == 1 and size_label == "L":
-        return SPEC_L
-    raise SpecError(f"style {style_id} has no size {size_label!r}")
-
-
-@pytest.fixture
-def client(database_url, monkeypatch):
+def make_client(monkeypatch, database_url, specs_url):
     monkeypatch.setenv("DATABASE_URL", database_url)
-    monkeypatch.setattr(routes, "get_graded_spec", fake_get_graded_spec)
+    monkeypatch.setenv("SPECS_URL", specs_url)
+    monkeypatch.setenv("SPECS_TIMEOUT_S", "1")
     return create_app().test_client()
 
 
-def record(client, measured_cm, size="L"):
-    return client.post("/samples", data={
-        "style_id": "1", "size": size, "stage": "fit", "m_CH": measured_cm})
+@pytest.fixture
+def client(database_url, specs, monkeypatch):  # noqa: F811
+    return make_client(monkeypatch, database_url, specs[1])
 
 
-def test_health(client):
-    assert client.get("/health").get_json() == {"status": "ok"}
+# ---- No database: the request is answered before samples opens a connection. ----
+
+NO_DB = "mssql://u:p@127.0.0.1:1/nothing_test"
 
 
-def test_index_redirects_to_rounds(client):
-    assert client.get("/").headers["Location"] == "/samples"
+def test_specs_down_is_a_clear_503_and_saves_nothing(monkeypatch, nothing_listening):  # noqa: F811
+    client = make_client(monkeypatch, NO_DB, nothing_listening)
+    response = client.post("/rounds", json=ROUND)
+    assert response.status_code == 503
+    assert "specs service is not responding" in response.get_json()["error"]
 
 
-def test_new_round_form_shows_graded_target(client):
-    page = client.get("/samples/new?style_id=1&size=L").data.decode()
-    assert "54.0" in page and 'name="m_CH"' in page
+def test_unknown_size_in_specs_is_422(monkeypatch, specs):  # noqa: F811
+    stub, url = specs
+    stub.answer(404, {"error": "style 1 has no size 'XXL'"})
+    response = make_client(monkeypatch, NO_DB, url).post("/rounds", json={**ROUND, "size": "XXL"})
+    assert response.status_code == 422
+    assert response.get_json() == {"error": "style 1 has no size 'XXL'"}
 
 
-def test_new_round_for_unknown_size_is_400(client):
-    assert client.get("/samples/new?style_id=1&size=XXL").status_code == 400
-
-
-def test_non_numeric_style_id_is_400(client):
-    assert client.get("/samples/new?style_id=abc&size=M").status_code == 400
-
-
-def test_record_round_and_show_verdict(client):
-    response = record(client, "55.5")
-    assert response.status_code == 302
-    page = client.get(response.headers["Location"]).data.decode()
-    assert "Rejected" in page and "+1.5" in page
-
-
-def test_bad_measurement_rerenders_form(client):
-    response = record(client, "abc")
+@pytest.mark.parametrize("change", [
+    {"style_id": "1"}, {"size": ""}, {"stage": "final"},
+    {"measured_mm": {"CH": "55.5"}}, {"measured_mm": {"CH": 55.5}}, {"measured_mm": []},
+])
+def test_bad_body_is_400_without_calling_specs(monkeypatch, specs, change):  # noqa: F811
+    stub, url = specs
+    response = make_client(monkeypatch, NO_DB, url).post("/rounds", json={**ROUND, **change})
     assert response.status_code == 400
-    assert b"is not a number" in response.data
+    assert stub.requests == []
 
 
-def test_blank_measurement_rejected(client):
-    response = record(client, "")
+# ---- With the samples test database. ----
+
+def test_health_writes_to_own_database(client):
+    assert client.get("/health").get_json() == {"status": "ok", "db": "ok", "version": "dev"}
+
+
+def test_record_round_snapshots_the_spec_and_shows_verdict(client, specs):  # noqa: F811
+    response = client.post("/rounds", json=ROUND)
+    assert response.status_code == 201
+    body = client.get(response.headers["Location"]).get_json()
+    assert body["round"]["style_code"] == "JK-014"
+    [row] = body["measurements"]
+    assert row["target_mm"] == 540 and row["deviation_mm"] == 15 and row["passes"] is False
+    assert body["summary"] == {"total": 1, "failed": 1, "failed_codes": ["CH"], "approved": False}
+    assert specs[0].requests == ["/styles/1/spec/L"]
+
+
+def test_recorded_rounds_still_show_when_specs_is_down(client, specs):  # noqa: F811
+    round_id = client.post("/rounds", json=ROUND).get_json()["id"]
+    specs[0].answer(503, {"status": "unavailable"})
+    assert client.get(f"/rounds/{round_id}").status_code == 200
+    [listed] = client.get("/rounds").get_json()
+    assert listed["id"] == round_id and listed["recorded_at"].endswith("Z")
+    assert client.post("/rounds", json=ROUND).status_code == 503
+
+
+def test_missing_measurement_saves_nothing(client):
+    response = client.post("/rounds", json={**ROUND, "measured_mm": {}})
     assert response.status_code == 400
-    assert b"no measurement for CH" in response.data
-
-
-def test_spec_unavailable_records_nothing(client):
-    assert record(client, "54", size="XXL").status_code == 400
-    assert client.get("/samples/1").status_code == 404
+    assert response.get_json() == {"error": "no measurement for CH"}
+    assert client.get("/rounds").get_json() == []
 
 
 def test_missing_round_is_404(client):
-    assert client.get("/samples/999").status_code == 404
+    assert client.get("/rounds/999").status_code == 404

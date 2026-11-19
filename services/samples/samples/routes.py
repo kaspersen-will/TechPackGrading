@@ -1,76 +1,41 @@
-"""HTTP layer for Sample Fit Review. Parses cm form input to mm, calls the store, renders.
+"""JSON API for Sample Fit Review. Every length is integer mm; the UI converts to cm.
 
-This is the one place Domain 2 touches Domain 1, through specs_client
-(get_graded_spec and SpecError). samples/store.py and samples/review.py don't
-know the specs service exists.
+Recording a round is the cross-seam flow: this service asks specs for the
+graded spec (specs_client), then snapshots it into its own tables (ADR-2).
+Listing and showing rounds never call specs, so they keep working when
+specs is down.
 """
 
 from contextlib import closing
 
-from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, jsonify, request
 
 import db
-from samples import store
-from samples.review import STAGES
-from samples.specs_client import SpecError, get_graded_spec
-from units import cm_to_mm
+from samples import specs_client, store
+from samples.review import STAGES, SampleError
 
-bp = Blueprint("samples", __name__, template_folder="templates", url_prefix="/samples")
+bp = Blueprint("samples", __name__, url_prefix="/rounds")
+
+SPECS_DOWN = ("The specs service is not responding, so this round can't be checked against "
+              "its spec. Nothing was saved. Recorded rounds are unaffected; try again in a minute.")
 
 
 def _connect():
     return closing(db.connect(current_app.config["DATABASE_URL"]))
 
 
-def _style_id():
-    try:
-        return int(request.values.get("style_id", ""))
-    except ValueError:
-        abort(400)
+def _round_json(sample_round):
+    recorded_at = sample_round["recorded_at"]
+    if hasattr(recorded_at, "strftime"):  # DATETIME2 comes back as a naive UTC datetime
+        recorded_at = recorded_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {**sample_round, "recorded_at": recorded_at}
 
 
 @bp.get("")
 def list_rounds():
     with _connect() as conn:
-        return render_template("samples/rounds.html", rounds=store.list_rounds(conn))
-
-
-@bp.get("/new")
-def new_round():
-    style_id, size_label = _style_id(), request.args.get("size", "")
-    with _connect() as conn:
-        try:
-            spec = get_graded_spec(style_id, size_label)
-        except SpecError as error:
-            return render_template("samples/rounds.html", rounds=store.list_rounds(conn),
-                                   error=str(error)), 400
-    return render_template("samples/new_round.html", spec=spec, style_id=style_id,
-                           size_label=size_label, stages=STAGES)
-
-
-@bp.post("")
-def record_round():
-    form = request.form
-    style_id, size_label, stage = _style_id(), form.get("size", ""), form.get("stage", "")
-    with _connect() as conn:
-        try:
-            # Fetch the spec again on submit: it may have been edited since the form loaded.
-            spec = get_graded_spec(style_id, size_label)
-        except SpecError as error:
-            return render_template("samples/rounds.html", rounds=store.list_rounds(conn),
-                                   error=str(error)), 400
-        try:
-            measured = {
-                pom["code"]: cm_to_mm(form[f"m_{pom['code']}"])
-                for pom in spec["poms"]
-                if form.get(f"m_{pom['code']}", "").strip()
-            }
-            round_id = store.record_round(conn, style_id, size_label, stage, spec, measured)
-        except ValueError as error:
-            return render_template("samples/new_round.html", spec=spec, style_id=style_id,
-                                   size_label=size_label, stages=STAGES, form=form,
-                                   error=str(error)), 400
-    return redirect(url_for("samples.show_round", round_id=round_id))
+        rounds = store.list_rounds(conn)
+    return jsonify([{**_round_json(item["round"]), "summary": item["summary"]} for item in rounds])
 
 
 @bp.get("/<int:round_id>")
@@ -78,5 +43,43 @@ def show_round(round_id):
     with _connect() as conn:
         data = store.get_round(conn, round_id)
     if data is None:
-        abort(404)
-    return render_template("samples/round.html", **data)
+        abort(404, f"no sample round {round_id}")
+    return jsonify(round=_round_json(data["round"]), measurements=data["measurements"],
+                   summary=data["summary"])
+
+
+@bp.post("")
+def record_round():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        abort(400, "the body must be a JSON object")
+    style_id, size_label = body.get("style_id"), body.get("size")
+    stage, measured = body.get("stage"), body.get("measured_mm")
+    if isinstance(style_id, bool) or not isinstance(style_id, int):
+        abort(400, "style_id must be a number")
+    if not isinstance(size_label, str) or not size_label:
+        abort(400, "size is required")
+    if stage not in STAGES:
+        abort(400, f"stage must be one of {', '.join(STAGES)}")
+    if not isinstance(measured, dict) or any(
+            isinstance(v, bool) or not isinstance(v, int) for v in measured.values()):
+        abort(400, "measured_mm must map each point of measure code to whole mm")
+
+    # Ask specs before opening our own connection, so a slow specs doesn't hold one open.
+    # Fetched on every submit, not when the form loaded: the spec may have changed since.
+    try:
+        spec = specs_client.get_graded_spec(style_id, size_label,
+                                            current_app.config["SPECS_URL"],
+                                            current_app.config["SPECS_TIMEOUT_S"])
+    except specs_client.SpecNotFound as error:
+        abort(422, str(error))
+    except specs_client.SpecsUnavailable as error:
+        current_app.logger.warning("cross-seam call failed: %s", error)
+        abort(503, SPECS_DOWN)
+
+    with _connect() as conn:
+        try:
+            round_id = store.record_round(conn, style_id, size_label, stage, spec, measured)
+        except SampleError as error:
+            abort(400, str(error))
+    return jsonify(id=round_id), 201, {"Location": f"/rounds/{round_id}"}
