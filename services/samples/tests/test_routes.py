@@ -46,6 +46,7 @@ def test_unknown_size_in_specs_is_422(monkeypatch, specs):  # noqa: F811
 @pytest.mark.parametrize("change", [
     {"style_id": "1"}, {"size": ""}, {"stage": "final"},
     {"measured_mm": {"CH": "55.5"}}, {"measured_mm": {"CH": 55.5}}, {"measured_mm": []},
+    {"factory": 42},
 ])
 def test_bad_body_is_400_without_calling_specs(monkeypatch, specs, change):  # noqa: F811
     stub, url = specs
@@ -78,6 +79,20 @@ def test_recorded_rounds_still_show_when_specs_is_down(client, specs):  # noqa: 
     [listed] = client.get("/rounds").get_json()
     assert listed["id"] == round_id and listed["recorded_at"].endswith("Z")
     assert client.post("/rounds", json=ROUND).status_code == 503
+
+
+def test_factory_is_stored_and_defaults_to_unassigned(client):
+    with_factory = client.post("/rounds", json={**ROUND, "factory": "  Atelier Porto "})
+    without = client.post("/rounds", json=ROUND)
+    assert client.get(with_factory.headers["Location"]).get_json()["round"]["factory"] == "Atelier Porto"
+    assert client.get(without.headers["Location"]).get_json()["round"]["factory"] == "unassigned"
+    assert {r["factory"] for r in client.get("/rounds").get_json()} == {"Atelier Porto", "unassigned"}
+
+
+def test_factory_too_long_saves_nothing(client):
+    response = client.post("/rounds", json={**ROUND, "factory": "x" * 101})
+    assert response.status_code == 400
+    assert client.get("/rounds").get_json() == []
 
 
 def test_missing_measurement_saves_nothing(client):

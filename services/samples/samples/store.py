@@ -7,26 +7,37 @@ values are copied into this service's own rows.
 
 from samples.review import STAGES, SampleError, build_measurements, review, summarise
 
+# Rounds recorded before migration 003 have this value, and so does a round
+# recorded without a factory. Must match the DEFAULT in 003_sample_round_factory.sql.
+UNASSIGNED = "unassigned"
+FACTORY_MAX = 100  # NVARCHAR(100)
+
 # The tables are defined by migrations/001_init.sql, applied by migrate.py.
 # sample_round.style_id deliberately has no foreign key: styles live in the
 # specs service's database (ADR-3).
 
 
-def record_round(conn, style_id, size_label, stage, spec, measured_by_code):
+def record_round(conn, style_id, size_label, stage, spec, measured_by_code,
+                 factory=UNASSIGNED):
     """Snapshot the graded spec and the factory's values as one round.
 
     Everything is validated before the first INSERT, and all inserts run in
     one transaction, so a rejected submission writes nothing.
     """
+    factory = factory.strip() if isinstance(factory, str) else ""
+    if not factory:
+        factory = UNASSIGNED
+    if len(factory) > FACTORY_MAX:
+        raise SampleError(f"factory can be at most {FACTORY_MAX} characters")
     if stage not in STAGES:
         raise SampleError(f"stage must be one of {', '.join(STAGES)}")
     rows = build_measurements(spec["poms"], measured_by_code)
 
     with conn:
         round_id = conn.execute(
-            "INSERT INTO sample_round (style_id, style_code, size_label, stage)"
-            " OUTPUT INSERTED.id VALUES (%s, %s, %s, %s)",
-            (style_id, spec["style_code"], size_label, stage),
+            "INSERT INTO sample_round (style_id, style_code, size_label, stage, factory)"
+            " OUTPUT INSERTED.id VALUES (%s, %s, %s, %s, %s)",
+            (style_id, spec["style_code"], size_label, stage, factory),
         ).fetchone()["id"]
         conn.executemany(
             "INSERT INTO round_measurement"
@@ -57,7 +68,7 @@ def _measurements(conn, round_ids):
 def list_rounds(conn):
     """Every round, newest first, each with its summary."""
     rounds = conn.execute(
-        "SELECT id, style_id, style_code, size_label, stage, recorded_at"
+        "SELECT id, style_id, style_code, size_label, stage, factory, recorded_at"
         " FROM sample_round ORDER BY id DESC"
     ).fetchall()
     measurements = _measurements(conn, [r["id"] for r in rounds])
@@ -67,7 +78,7 @@ def list_rounds(conn):
 def get_round(conn, round_id):
     """One round with its reviewed measurements and summary, or None."""
     sample_round = conn.execute(
-        "SELECT id, style_id, style_code, size_label, stage, recorded_at"
+        "SELECT id, style_id, style_code, size_label, stage, factory, recorded_at"
         " FROM sample_round WHERE id = %s",
         (round_id,),
     ).fetchone()

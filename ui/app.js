@@ -205,12 +205,13 @@ async function roundsPage() {
     <p class="meta">To record a new round, open a style and pick the size the factory sampled.</p>
     ${rounds.length ? `
       <div class="scroll"><table>
-        <tr><th>Round</th><th>Style</th><th>Size</th><th>Stage</th><th>Recorded (UTC)</th>
+        <tr><th>Round</th><th>Style</th><th>Size</th><th>Stage</th><th>Factory</th><th>Recorded (UTC)</th>
             <th>Out of tolerance</th><th>Result</th></tr>
         ${rounds.map((r) => `
           <tr><td><a href="#/rounds/${r.id}">#${r.id}</a></td>
             <td class="text">${esc(r.style_code)}</td><td class="text">${esc(r.size_label)}</td>
-            <td class="text">${esc(r.stage)}</td><td class="text">${esc(r.recorded_at)}</td>
+            <td class="text">${esc(r.stage)}</td><td class="text">${esc(r.factory)}</td>
+            <td class="text">${esc(r.recorded_at)}</td>
             <td>${r.summary.failed} / ${r.summary.total}</td>
             <td class="text">${r.summary.approved ? "Approved" : "Rejected"}</td></tr>`).join("")}
       </table></div>` : `<p class="meta">No sample rounds recorded yet.</p>`}`;
@@ -226,9 +227,12 @@ async function newRoundPage(params) {
     <p class="meta">Enter every measurement from the factory sample, in cm. A round is saved only if every point of measure has a value.</p>
     ${errorBox()}
     <form id="record">
-      <p><label>Stage <select name="stage" required>
-        <option>proto</option><option>fit</option><option>pre-production</option>
-      </select></label></p>
+      <div class="inline">
+        <label>Stage <select name="stage" required>
+          <option>proto</option><option>fit</option><option>pre-production</option>
+        </select></label>
+        <label>Factory <input class="wide" name="factory" maxlength="100" placeholder="Leave empty if unknown"></label>
+      </div>
       <div class="scroll"><table>
         <tr><th>Point of measure</th><th>Spec</th><th>Tol ±</th><th>Measured (cm)</th></tr>
         ${spec.poms.map((p) => `
@@ -242,7 +246,8 @@ async function newRoundPage(params) {
     const measured = {};
     for (const p of spec.poms) measured[p.code] = cmToMm(data.get(p.code), p.code);
     const created = await api("samples", "/rounds", { method: "POST", body: {
-      style_id: styleId, size, stage: data.get("stage"), measured_mm: measured,
+      style_id: styleId, size, stage: data.get("stage"), factory: data.get("factory"),
+      measured_mm: measured,
     } });
     location.hash = `#/rounds/${created.id}`;
   });
@@ -252,7 +257,7 @@ async function roundPage(roundId) {
   const { round, measurements, summary } = await api("samples", `/rounds/${roundId}`);
   main.innerHTML = `
     <h1>Round #${round.id}: ${esc(round.style_code)}, size ${esc(round.size_label)}</h1>
-    <p class="meta">Stage ${esc(round.stage)}, recorded ${esc(round.recorded_at)}. Spec values are the copy taken when the round was recorded. All values in cm.</p>
+    <p class="meta">Stage ${esc(round.stage)}, factory ${esc(round.factory)}, recorded ${esc(round.recorded_at)}. Spec values are the copy taken when the round was recorded. All values in cm.</p>
     <h2>${summary.approved ? "Approved" : "Rejected"}: ${summary.failed} of ${summary.total} out of tolerance</h2>
     ${summary.failed_codes.length ? `<p class="meta">Out of tolerance: ${summary.failed_codes.map(esc).join(", ")}</p>` : ""}
     <div class="scroll"><table>

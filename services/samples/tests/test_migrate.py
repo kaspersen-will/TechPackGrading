@@ -45,7 +45,8 @@ def test_missing_migration_file_stops_startup(tmp_path):
 
 
 def test_shipped_migrations_are_valid():
-    assert [m[0] for m in migrate.read_migrations()][:2] == ["001_init.sql", "002_health_check.sql"]
+    assert [m[0] for m in migrate.read_migrations()] == [
+        "001_init.sql", "002_health_check.sql", "003_sample_round_factory.sql"]
 
 
 # ---- Against SQL Server. The conn fixture has already applied every migration. ----
@@ -78,3 +79,23 @@ def test_failed_migration_leaves_nothing_behind(conn, tmp_path):
         migrate.migrate(conn, tmp_path)
     assert conn.execute("SELECT OBJECT_ID(N'half_done') AS id").fetchone()["id"] is None
     assert count(conn, "schema_migrations") == len(migrate.read_migrations())
+
+
+def test_003_keeps_rounds_recorded_before_it(conn, tmp_path):
+    # Rebuild the database as it was on Azure before 003: only 001 and 002 applied.
+    from conftest import DROP_EVERYTHING
+    with conn:
+        conn.execute(DROP_EVERYTHING)
+    shipped = migrate.read_migrations()
+    for version, sql, _ in shipped:
+        if version < "003":
+            write(tmp_path, version, sql)
+    migrate.migrate(conn, tmp_path)
+    with conn:
+        conn.execute("INSERT INTO sample_round (style_id, style_code, size_label, stage)"
+                     " VALUES (1, 'JK-014', 'L', 'fit')")
+
+    assert migrate.migrate(conn) == ["003_sample_round_factory.sql"]
+
+    rows = conn.execute("SELECT style_code, size_label, factory FROM sample_round").fetchall()
+    assert rows == [{"style_code": "JK-014", "size_label": "L", "factory": "unassigned"}]

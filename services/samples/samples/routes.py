@@ -55,6 +55,9 @@ def record_round():
         abort(400, "the body must be a JSON object")
     style_id, size_label = body.get("style_id"), body.get("size")
     stage, measured = body.get("stage"), body.get("measured_mm")
+    factory = body.get("factory", store.UNASSIGNED)
+    if not isinstance(factory, str):
+        abort(400, "factory must be text")
     if isinstance(style_id, bool) or not isinstance(style_id, int):
         abort(400, "style_id must be a number")
     if not isinstance(size_label, str) or not size_label:
@@ -79,7 +82,8 @@ def record_round():
 
     with _connect() as conn:
         try:
-            round_id = store.record_round(conn, style_id, size_label, stage, spec, measured)
+            round_id = store.record_round(conn, style_id, size_label, stage, spec, measured,
+                                          factory)
         except SampleError as error:
             abort(400, str(error))
     return jsonify(id=round_id), 201, {"Location": f"/rounds/{round_id}"}
