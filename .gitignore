@@ -7,3 +7,4 @@ data/
 .coverage
 htmlcov/
 .env
+.DS_Store
