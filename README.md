@@ -38,32 +38,36 @@ Each domain owns its own tables. Sample fit review reads specs only through a si
 
 ## Running locally
 
-Assignment 2 splits the app into two services, `services/specs` (port 8000) and `services/samples` (port 8001), each with its own SQL Server database and a JSON API, plus a static UI in `ui/` that calls both from the browser. Full `docker compose up` of the whole system arrives with the Dockerfiles; for now compose runs the database and the UI, and each service runs with Python.
+Assignment 2 splits the app into two services, `services/specs` (port 8000) and `services/samples` (port 8001), each with its own SQL Server database, its own Dockerfile and a JSON API, plus a static UI in `ui/` that calls both from the browser.
 
-Requires Docker Desktop (on Apple Silicon, turn on "Use Rosetta for x86_64/amd64 emulation") and Python 3.10+.
+Requires Docker Desktop (on Apple Silicon, turn on "Use Rosetta for x86_64/amd64 emulation"). Python 3.10+ only to run a service or its tests outside Docker.
 
-**1. Start SQL Server and create the databases and logins**
+### The whole system, one command
 
 ```bash
-docker compose up -d mssql db-init ui
-docker compose logs db-init        # ends with "databases and logins ready"
+docker compose up --build
 ```
+
+Then open http://localhost:8080 (use `localhost`, not `127.0.0.1`: CORS allows exactly `UI_ORIGIN`). Compose starts SQL Server, runs `db/init.sql` once it is healthy, then starts both services (each applies its pending migrations before gunicorn starts) and nginx serving `ui/`.
 
 `db/init.sql` creates `specs`, `samples` and a `_test` database for each, plus one login per service that can only reach its own databases. Data lives in the `mssql-data` volume and survives `docker compose down`; `docker compose down -v` deletes it.
 
-**2. Run a service** (same for `samples`, with `samples_user`, `LocalOnly_samples_2026`, `/samples` and `PORT=8001`)
+To see the designed partial failure: `docker compose stop specs`, then record a sample round. The UI shows "Nothing was saved"; recorded rounds still list and open. `docker compose start specs` brings it back.
+
+### One service outside Docker
+
+Same for `samples`, with `samples_user`, `LocalOnly_samples_2026`, `/samples` and `PORT=8001`:
 
 ```bash
+docker compose up -d mssql db-init ui
 cd services/specs
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 export DATABASE_URL='mssql://specs_user:LocalOnly_specs_2026@localhost:1433/specs'
 python app.py                      # applies pending migrations, then serves on :8000
 ```
 
-The passwords are local-only defaults from `docker-compose.yml`; override them in a git-ignored `.env` file.
-
-**3. Open the UI** at http://localhost:8080 (use `localhost`, not `127.0.0.1`: CORS allows exactly `UI_ORIGIN`). `ui/config.js` holds the two service URLs; the deploy workflow overwrites it with the Azure ones.
+The passwords are local-only defaults from `docker-compose.yml`; override them in a git-ignored `.env` file. `ui/config.js` holds the two service URLs; the deploy workflow overwrites it with the Azure ones.
 
 ### Configuration
 

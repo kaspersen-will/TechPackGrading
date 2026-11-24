@@ -1,6 +1,6 @@
-# Local system. For now: SQL Server, the one-off script that creates the
-# databases and logins, and nginx serving the static UI in ui/. The two
-# services join once they have Dockerfiles; until then run them with Python (README).
+# The whole system: docker compose up --build, then open http://localhost:8080.
+# SQL Server, the one-off script that creates the databases and logins, the two
+# service containers, and nginx serving the static UI in ui/.
 #
 # The passwords below are local-only defaults for a database that exists only
 # on this machine and is never reachable from outside it (port bound to
@@ -53,6 +53,32 @@ services:
         -i /db/init.sql
         -v SPECS_DB_PASSWORD="$$SPECS_DB_PASSWORD" SAMPLES_DB_PASSWORD="$$SAMPLES_DB_PASSWORD"
     restart: "no"
+
+  # Service containers. Each waits for db-init, applies its own migrations, then serves.
+  specs:
+    build: ./services/specs
+    environment:
+      DATABASE_URL: mssql://specs_user:${SPECS_DB_PASSWORD:-LocalOnly_specs_2026}@mssql:1433/specs
+      UI_ORIGIN: http://localhost:8080
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # Depends only on the database, not on specs: it must start and serve its own
+  # rounds while specs is stopped (docker compose stop specs).
+  samples:
+    build: ./services/samples
+    environment:
+      DATABASE_URL: mssql://samples_user:${SAMPLES_DB_PASSWORD:-LocalOnly_samples_2026}@mssql:1433/samples
+      SPECS_URL: http://specs:8000
+      UI_ORIGIN: http://localhost:8080
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
 
   # Not a service container: a stock web server with ui/ mounted, no Dockerfile.
   ui:
