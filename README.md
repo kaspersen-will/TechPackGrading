@@ -72,7 +72,7 @@ The passwords are local-only defaults from `docker-compose.yml`; override them i
 | `DATABASE_URL` | none (required) | `mssql://user:password@host:1433/database` of this service's own database |
 | `PORT` | `8000` specs, `8001` samples | Port the server listens on |
 | `SPECS_URL` | `http://localhost:8000` | samples only: where the specs service is |
-| `SPECS_TIMEOUT_S` | `5` | samples only: how long to wait for specs before answering 503 |
+| `SPECS_TIMEOUT_S` | `25` | samples only: how long to wait for specs before answering 503 |
 | `UI_ORIGIN` | `http://localhost:8080` | The only browser origin allowed to call the service (CORS) |
 | `GIT_SHA` | `dev` | Version reported by `/health` (set to the commit SHA on deploy) |
 | `HEALTH_DB_TIMEOUT_S` | `5` | How long `/health` keeps retrying the database before answering 503 |

@@ -18,7 +18,7 @@ def create_app():
     app.config["DATABASE_URL"] = os.environ["DATABASE_URL"]
     # Where the specs service is, and how long to wait for it before answering 503.
     app.config["SPECS_URL"] = os.environ.get("SPECS_URL", "http://localhost:8000")
-    app.config["SPECS_TIMEOUT_S"] = float(os.environ.get("SPECS_TIMEOUT_S", "5"))
+    app.config["SPECS_TIMEOUT_S"] = float(os.environ.get("SPECS_TIMEOUT_S", "25"))
 
     web.install(app)  # request logs, CORS for UI_ORIGIN, JSON errors, /health
     app.register_blueprint(samples_bp)
