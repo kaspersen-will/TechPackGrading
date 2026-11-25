@@ -94,8 +94,13 @@ Tests that need a database run against the `_test` databases, which they wipe; w
 ```bash
 cd services/specs
 export TEST_DATABASE_URL='mssql://specs_user:LocalOnly_specs_2026@localhost:1433/specs_test'
-python -m pytest --cov
+python -m pytest --cov --cov-fail-under=70
+ruff check .
 ```
+
+### CI
+
+`.github/workflows/ci.yml` runs on every push and pull request: it validates `system.yaml` against `system.schema.json` and both `openapi.yaml` files, then for each service runs ruff and the tests with coverage (failing under 70%) against a throwaway SQL Server started from this compose file with random passwords, and builds the image. CI never connects to Azure SQL.
 
 ## Project documents
 
