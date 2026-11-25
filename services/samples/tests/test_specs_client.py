@@ -3,9 +3,9 @@
 import time
 
 import pytest
-from stub_specs import SPEC_L, nothing_listening, specs  # noqa: F401 (fixtures)
 
 from samples.specs_client import SpecNotFound, SpecsUnavailable, get_graded_spec
+from stub_specs import SPEC_L, nothing_listening, specs  # noqa: F401 (fixtures)
 
 
 def test_returns_the_graded_spec(specs):  # noqa: F811

@@ -129,11 +129,11 @@ def get_graded_spec(conn, style_id, size_label):
 # ---- Read/delete functions for Domain 1's own pages. ----
 # The samples service's only entry point is get_graded_spec.
 
- 
+
 def list_styles(conn):
     return conn.execute("SELECT id, code, name, base_size FROM style ORDER BY code").fetchall()
 
- 
+
 def get_style(conn, style_id):
     """Everything the style page shows, or None if the style doesn't exist.
 
@@ -181,7 +181,7 @@ def get_style(conn, style_id):
 
     return {"style": style, "sizes": sizes, "poms": poms, "rules": rules, "size_run": size_run}
 
- 
+
 def delete_style(conn, style_id):
     """Delete a style with its sizes, POMs and grade rules, in one transaction.
 
@@ -198,4 +198,3 @@ def delete_style(conn, style_id):
         )
         deleted = conn.execute("DELETE FROM style WHERE id = %s", (style_id,)).rowcount
     return deleted == 1
- 

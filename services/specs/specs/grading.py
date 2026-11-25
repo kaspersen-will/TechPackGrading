@@ -18,7 +18,7 @@ def validate_size_run(sizes, base_size):
 
 def grade(base_value_mm, base_position, target_position, increments):
     """Return one point of measure's value at target_position, in mm.
- 
+
     increments maps a size position to: value at that size minus value
     at the size just below it. Going up from the base adds increments,
     going down subtracts them.

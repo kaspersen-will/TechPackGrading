@@ -4,9 +4,9 @@ the specs-down and bad-input cases need no database and always run.
 """
 
 import pytest
-from stub_specs import nothing_listening, specs  # noqa: F401 (fixtures)
 
 from app import create_app
+from stub_specs import nothing_listening, specs  # noqa: F401 (fixtures)
 
 ROUND = {"style_id": 1, "size": "L", "stage": "fit", "measured_mm": {"CH": 555}}
 
