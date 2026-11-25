@@ -1,0 +1,284 @@
+openapi: 3.0.3
+info:
+  title: Maison Grader - specs service
+  version: "1.0"
+  description: >-
+    Styles, their sizes and points of measure, grade rules, and the graded spec per size.
+    Every length is integer mm; the UI converts to cm. Errors are always JSON {"error": "..."}.
+    tests/test_openapi.py fails if a route is added to the code but not here, or the reverse.
+servers:
+  - url: http://localhost:8000
+    description: docker compose
+
+paths:
+  /health:
+    get:
+      summary: Can this service read and write its own database?
+      operationId: health
+      responses:
+        "200":
+          description: A write to this service's own database succeeded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: The database didn't answer within HEALTH_DB_TIMEOUT_S.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /styles:
+    get:
+      summary: Every style, ordered by code
+      operationId: listStyles
+      responses:
+        "200":
+          description: The styles (possibly none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Style" }
+    post:
+      summary: Create a style with its size run
+      operationId: createStyle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewStyle" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location:
+              schema: { type: string, example: /styles/1 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Created" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: That style code is already used.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /styles/{style_id}:
+    parameters:
+      - $ref: "#/components/parameters/StyleId"
+    get:
+      summary: One style with its sizes, points of measure, grade rules and size run
+      operationId: getStyle
+      responses:
+        "200":
+          description: The style.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StyleDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete a style with its sizes, points of measure and grade rules
+      description: Sample rounds in the samples service keep their snapshot and still render.
+      operationId: deleteStyle
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /styles/{style_id}/poms:
+    parameters:
+      - $ref: "#/components/parameters/StyleId"
+    post:
+      summary: Add a point of measure at the base size
+      operationId: addPointOfMeasure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewPointOfMeasure" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Created" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: That point of measure code is already used on this style.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /styles/{style_id}/poms/{pom_id}/rules:
+    parameters:
+      - $ref: "#/components/parameters/StyleId"
+      - name: pom_id
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      summary: Set grade rules for one point of measure
+      description: >-
+        Every value is checked before any is written, so one bad value saves nothing.
+        Only sizes after the smallest take a rule.
+      operationId: setGradeRules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [increments_mm]
+              properties:
+                increments_mm:
+                  description: Size label -> whole mm added going up to that size from the one below.
+                  type: object
+                  additionalProperties: { type: integer }
+                  example: { M: 20, L: 20, XL: 25 }
+      responses:
+        "204": { description: Saved. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /styles/{style_id}/spec/{size_label}:
+    parameters:
+      - $ref: "#/components/parameters/StyleId"
+      - name: size_label
+        in: path
+        required: true
+        schema: { type: string, example: L }
+    get:
+      summary: The graded spec of one style at one size (the seam)
+      description: >-
+        Called by the samples service when it records a round, and by the UI to build the
+        new-round form. samples' specs_client.py relies on this response shape.
+      operationId: getGradedSpec
+      responses:
+        "200":
+          description: Every point of measure graded to that size.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GradedSpec" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: The spec can't be graded yet, because a grade rule is missing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  parameters:
+    StyleId:
+      name: style_id
+      in: path
+      required: true
+      schema: { type: integer }
+
+  responses:
+    BadRequest:
+      description: The body can't be used (missing field, wrong type, invalid value).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such style, size or point of measure.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Health:
+      type: object
+      required: [status, db, version]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        db: { type: string, enum: [ok, error] }
+        version: { type: string, description: "Git SHA of the image, or dev" }
+
+    Created:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer }
+
+    Style:
+      type: object
+      required: [id, code, name, base_size]
+      properties:
+        id: { type: integer }
+        code: { type: string, example: JK-014 }
+        name: { type: string, example: Cropped wool jacket }
+        base_size: { type: string, example: M }
+
+    NewStyle:
+      type: object
+      required: [code, name, sizes, base_size]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        sizes:
+          description: Size labels, smallest first.
+          type: array
+          items: { type: string }
+          example: [S, M, L, XL]
+        base_size: { type: string, description: One of sizes. }
+
+    NewPointOfMeasure:
+      type: object
+      required: [code, description, base_value_mm, tolerance_mm]
+      properties:
+        code: { type: string, example: CH }
+        description: { type: string, example: Chest width }
+        base_value_mm: { type: integer, minimum: 1 }
+        tolerance_mm: { type: integer, minimum: 0 }
+
+    StyleDetail:
+      type: object
+      required: [style, sizes, poms]
+      properties:
+        style: { $ref: "#/components/schemas/Style" }
+        sizes:
+          type: array
+          items: { type: string }
+        poms:
+          type: array
+          items:
+            type: object
+            required: [id, code, description, base_value_mm, tolerance_mm, rules, size_run]
+            properties:
+              id: { type: integer }
+              code: { type: string }
+              description: { type: string }
+              base_value_mm: { type: integer }
+              tolerance_mm: { type: integer }
+              rules:
+                description: Size label -> increment in mm.
+                type: object
+                additionalProperties: { type: integer }
+              size_run:
+                description: Size label -> graded target in mm, or null where a rule is missing.
+                type: object
+                additionalProperties: { type: integer, nullable: true }
+
+    GradedSpec:
+      type: object
+      required: [style_code, poms]
+      properties:
+        style_code: { type: string }
+        poms:
+          type: array
+          items:
+            type: object
+            required: [pom_id, code, description, target_mm, tolerance_mm]
+            properties:
+              pom_id: { type: integer }
+              code: { type: string }
+              description: { type: string }
+              target_mm: { type: integer }
+              tolerance_mm: { type: integer }
