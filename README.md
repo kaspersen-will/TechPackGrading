@@ -147,6 +147,7 @@ az login
 az account set --subscription "Azure for Students"
 az policy assignment list \
   --query "[?displayName=='Allowed resource deployment regions'].parameters.listOfAllowedLocations.value" -o tsv
+# empty? the display name differs: az policy assignment list -o table, then look at that assignment
 REGION=__REGION__                 # one region from that list, used for everything
 SQL_REGION=__SQL_REGION__          # the free SQL offer isn't in every region (not spaincentral)
 ```
@@ -224,12 +225,13 @@ PRINCIPAL_ID=$(az identity show -n "$PREFIX-github" -g "$RG" --query principalId
 az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
   --role Contributor --scope "$RG_ID"
 NUMERIC_SUBJECT=$(gh api "repos/$GH_REPO" --jq '"repo:\(.owner.login)@\(.owner.id)/\(.name)@\(.id):ref:refs/heads/main"')
-for subject in "repo:${GH_REPO}:ref:refs/heads/main" "$NUMERIC_SUBJECT"; do
+for pair in "github-main-names|repo:${GH_REPO}:ref:refs/heads/main" "github-main-ids|$NUMERIC_SUBJECT"; do
   az identity federated-credential create -g "$RG" --identity-name "$PREFIX-github" \
-    -n "github-main-$(echo "$subject" | md5sum | cut -c1-8)" \
-    --issuer https://token.actions.githubusercontent.com --subject "$subject" \
+    -n "${pair%%|*}" --subject "${pair#*|}" \
+    --issuer https://token.actions.githubusercontent.com \
     --audiences api://AzureADTokenExchange
 done
+az identity federated-credential list -g "$RG" --identity-name "$PREFIX-github" --query "[].subject" -o tsv
 ```
 
 **7. GitHub secrets and variables.**
