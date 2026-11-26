@@ -1,0 +1,124 @@
+# CD: every push to main, that is, every merged pull request. Runs CI first (which
+# also pushes the SHA-tagged images) and deploys only if CI passed on this commit.
+# The pipeline owns the Container Apps' configuration: each deploy sets the image,
+# the database secret and every environment variable, so Azure can't drift from
+# system.yaml. Nothing is changed by hand after the initial setup (README).
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy  # one deploy at a time; a newer merge waits instead of racing
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      packages: write  # CI's build job pushes the images to GHCR on main
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # OIDC: GitHub gives Azure a short-lived token, no stored Azure password
+    env:
+      PREFIX: ${{ vars.PREFIX }}
+      RG: ${{ vars.RESOURCE_GROUP }}
+      UI_STORAGE: ${{ vars.UI_STORAGE }}
+      IMAGES: ghcr.io/${{ github.repository_owner }}/maison-grader
+      SHA: ${{ github.sha }}
+      # A new revision name on every attempt, so re-running a failed deploy pulls again.
+      REVISION: r${{ github.run_number }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Sign in to Azure as the managed identity
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Look up the services' and the UI's addresses
+        run: |
+          fqdn() { az containerapp show -n "$1" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv; }
+          ui=$(az storage account show -n "$UI_STORAGE" -g "$RG" --query primaryEndpoints.web -o tsv)
+          ui=${ui%/}  # the browser's Origin header has no trailing slash
+          {
+            echo "SPECS_BASE=https://$(fqdn "$PREFIX-specs")"
+            echo "SAMPLES_BASE=https://$(fqdn "$PREFIX-samples")"
+            echo "UI_ORIGIN=$ui"
+          } >> "$GITHUB_ENV"
+          if ! grep -qx "public_url: $ui" system.yaml; then
+            echo "::warning::system.yaml public_url doesn't match the storage endpoint $ui"
+          fi
+
+      # The password comes from a GitHub secret and is URL-encoded, so characters such
+      # as @ : / # can't break the URL db.parse_url splits. Azure SQL only accepts
+      # encrypted connections; pymssql's FreeTDS negotiates TLS with TDS 7.4.
+      - name: Deploy specs
+        env:
+          DB_PASSWORD: ${{ secrets.SPECS_DB_PASSWORD }}
+        run: |
+          url=$(python3 -c 'import os, urllib.parse as u; print("mssql://specs_user:" + u.quote(os.environ["DB_PASSWORD"], safe="") + "@" + os.environ["PREFIX"] + "-sql.database.windows.net:1433/" + os.environ["PREFIX"] + "-specs-db")')
+          echo "::add-mask::$url"
+          az containerapp secret set -n "$PREFIX-specs" -g "$RG" --secrets "database-url=$url" -o none
+          az containerapp update -n "$PREFIX-specs" -g "$RG" -o none \
+            --image "$IMAGES-specs:$SHA" --revision-suffix "$REVISION" \
+            --replace-env-vars DATABASE_URL=secretref:database-url \
+              PORT=8000 UI_ORIGIN="$UI_ORIGIN" GIT_SHA="$SHA"
+
+      - name: Deploy samples
+        env:
+          DB_PASSWORD: ${{ secrets.SAMPLES_DB_PASSWORD }}
+        run: |
+          url=$(python3 -c 'import os, urllib.parse as u; print("mssql://samples_user:" + u.quote(os.environ["DB_PASSWORD"], safe="") + "@" + os.environ["PREFIX"] + "-sql.database.windows.net:1433/" + os.environ["PREFIX"] + "-samples-db")')
+          echo "::add-mask::$url"
+          az containerapp secret set -n "$PREFIX-samples" -g "$RG" --secrets "database-url=$url" -o none
+          az containerapp update -n "$PREFIX-samples" -g "$RG" -o none \
+            --image "$IMAGES-samples:$SHA" --revision-suffix "$REVISION" \
+            --replace-env-vars DATABASE_URL=secretref:database-url \
+              PORT=8001 UI_ORIGIN="$UI_ORIGIN" GIT_SHA="$SHA" \
+              SPECS_URL="$SPECS_BASE" SPECS_TIMEOUT_S=25
+
+      - name: Deploy the UI with the services' addresses
+        run: |
+          cat > ui/config.js <<EOF
+          // Written by cd.yml at deploy $SHA. Do not edit: the next deploy overwrites it.
+          window.MAISON_CONFIG = {
+            specs: "$SPECS_BASE",
+            samples: "$SAMPLES_BASE",
+          };
+          EOF
+          # The identity is Contributor on the resource group (management plane), so it
+          # reads the account key instead of needing a data-plane role.
+          # no-cache: a browser must not keep an old config.js after a deploy.
+          az storage blob upload-batch --account-name "$UI_STORAGE" --auth-mode key \
+            -s ui -d '$web' --overwrite --content-cache-control "no-cache" -o none
+
+      - name: Health check, allowing for cold starts
+        run: |
+          # Each service must answer 200 (curl -f fails on anything else) from the new
+          # revision, whose /health reports this commit as its version.
+          # Up to 6 minutes each: the container starts from zero, the database may be
+          # resuming from pause (about a minute), and migrations run before gunicorn.
+          for base in "$SPECS_BASE" "$SAMPLES_BASE"; do
+            deadline=$((SECONDS + 360))
+            until body=$(curl -fsS --max-time 40 "$base/health") && grep -q "\"$SHA\"" <<< "$body"; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::$base/health never returned 200 for $SHA"
+                exit 1
+              fi
+              echo "$base/health not ready yet: ${body:-no answer}"
+              sleep 10
+            done
+            echo "$base/health: $body"
+          done
