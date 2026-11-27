@@ -1,0 +1,11 @@
+# Linter for this service: ruff check .  (run in CI on every push)
+target-version = "py310"
+line-length = 110
+
+[lint]
+# pycodestyle errors and warnings, pyflakes, bugbear, import order
+select = ["E", "W", "F", "B", "I"]
+
+[lint.isort]
+# The service's own top-level modules, so they sort after third-party imports.
+known-first-party = ["app", "db", "migrate", "web", "specs", "samples", "stub_specs"]

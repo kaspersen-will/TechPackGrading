@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: Maison Grader - samples service
+  version: "1.0"
+  description: >-
+    Factory sample rounds: the measured values, checked against a snapshot of the graded spec
+    taken from the specs service when the round is recorded. Every length is integer mm; the UI
+    converts to cm. Errors are always JSON {"error": "..."}.
+    tests/test_openapi.py fails if a route is added to the code but not here, or the reverse.
+servers:
+  - url: http://localhost:8001
+    description: docker compose
+
+paths:
+  /health:
+    get:
+      summary: Can this service read and write its own database?
+      description: Reflects only this service's database, never the specs service.
+      operationId: health
+      responses:
+        "200":
+          description: A write to this service's own database succeeded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: The database didn't answer within HEALTH_DB_TIMEOUT_S.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /rounds:
+    get:
+      summary: Every sample round, newest first, each with its summary
+      description: Never calls specs, so it keeps working when specs is down.
+      operationId: listRounds
+      responses:
+        "200":
+          description: The rounds (possibly none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/Round"
+                    - type: object
+                      required: [summary]
+                      properties:
+                        summary: { $ref: "#/components/schemas/Summary" }
+    post:
+      summary: Record a sample round (crosses the seam)
+      description: >-
+        Fetches GET /styles/{style_id}/spec/{size_label} from specs (timeout SPECS_TIMEOUT_S),
+        then stores the spec and the measurements as one round in one transaction. A missing
+        or unknown point of measure rejects the whole round.
+      operationId: recordRound
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewRound" }
+      responses:
+        "201":
+          description: Recorded.
+          headers:
+            Location:
+              schema: { type: string, example: /rounds/1 }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: integer }
+        "400":
+          description: The body can't be used, or the measurements don't match the spec.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Specs answered that the style or size doesn't exist, or can't be graded yet.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Specs didn't answer in time or failed. Nothing was saved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /rounds/{round_id}:
+    parameters:
+      - name: round_id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: One round with its reviewed measurements and summary
+      description: Rendered from the snapshot, so it works after the style is deleted in specs.
+      operationId: getRound
+      responses:
+        "200":
+          description: The round.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [round, measurements, summary]
+                properties:
+                  round: { $ref: "#/components/schemas/Round" }
+                  measurements:
+                    type: array
+                    items: { $ref: "#/components/schemas/Measurement" }
+                  summary: { $ref: "#/components/schemas/Summary" }
+        "404":
+          description: No such round.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Health:
+      type: object
+      required: [status, db, version]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        db: { type: string, enum: [ok, error] }
+        version: { type: string, description: "Git SHA of the image, or dev" }
+
+    Stage:
+      type: string
+      enum: [proto, fit, pre-production]
+
+    NewRound:
+      type: object
+      required: [style_id, size, stage, measured_mm]
+      properties:
+        style_id: { type: integer }
+        size: { type: string, example: L }
+        stage: { $ref: "#/components/schemas/Stage" }
+        measured_mm:
+          description: Point of measure code -> measured value in whole mm, one per point of measure.
+          type: object
+          additionalProperties: { type: integer, minimum: 1 }
+          example: { CH: 555, SL: 640 }
+
+    Round:
+      type: object
+      required: [id, style_id, style_code, size_label, stage, recorded_at]
+      properties:
+        id: { type: integer }
+        style_id:
+          type: integer
+          description: Id in the specs service. No foreign key; the style may since have been deleted.
+        style_code: { type: string, description: Snapshot taken when the round was recorded. }
+        size_label: { type: string }
+        stage: { $ref: "#/components/schemas/Stage" }
+        recorded_at: { type: string, format: date-time, example: "2026-11-24T10:15:00Z" }
+
+    Measurement:
+      type: object
+      required: [round_id, pom_code, description, target_mm, tolerance_mm, measured_mm, deviation_mm, passes]
+      properties:
+        round_id: { type: integer }
+        pom_code: { type: string }
+        description: { type: string }
+        target_mm: { type: integer }
+        tolerance_mm: { type: integer }
+        measured_mm: { type: integer }
+        deviation_mm: { type: integer, description: measured_mm - target_mm }
+        passes: { type: boolean, description: "|deviation_mm| <= tolerance_mm (inclusive)" }
+
+    Summary:
+      type: object
+      required: [total, failed, failed_codes, approved]
+      properties:
+        total: { type: integer }
+        failed: { type: integer }
+        failed_codes:
+          type: array
+          items: { type: string }
+        approved: { type: boolean }

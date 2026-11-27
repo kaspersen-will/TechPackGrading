@@ -1,0 +1,92 @@
+# The whole system: docker compose up --build, then open http://localhost:8080.
+# SQL Server, the one-off script that creates the databases and logins, the two
+# service containers, and nginx serving the static UI in ui/.
+#
+# The passwords below are local-only defaults for a database that exists only
+# on this machine and is never reachable from outside it (port bound to
+# 127.0.0.1). They are not used anywhere else: Azure gets its own passwords,
+# stored as GitHub Actions secrets. Override them in a git-ignored .env file.
+
+name: maison-grader
+
+x-mssql-image: &mssql-image
+  image: mcr.microsoft.com/mssql/server:2022-latest
+  platform: linux/amd64  # no arm64 image; Apple Silicon runs it under Rosetta
+
+x-passwords: &passwords
+  MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-LocalOnly_sa_2026}
+  SPECS_DB_PASSWORD: ${SPECS_DB_PASSWORD:-LocalOnly_specs_2026}
+  SAMPLES_DB_PASSWORD: ${SAMPLES_DB_PASSWORD:-LocalOnly_samples_2026}
+
+services:
+  mssql:
+    <<: *mssql-image
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-LocalOnly_sa_2026}
+    ports:
+      - "127.0.0.1:1433:1433"  # so tests and `python app.py` on the host can reach it
+    volumes:
+      - mssql-data:/var/opt/mssql  # data survives `docker compose down`; only `down -v` deletes it
+    healthcheck:
+      # sqlcmd moved to mssql-tools18 in the 2022 image; -C trusts its self-signed certificate.
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q 'SELECT 1' > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  db-init:
+    <<: *mssql-image
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment: *passwords
+    volumes:
+      - ./db:/db:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >-
+        /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" -C -b
+        -i /db/init.sql
+        -v SPECS_DB_PASSWORD="$$SPECS_DB_PASSWORD" SAMPLES_DB_PASSWORD="$$SAMPLES_DB_PASSWORD"
+    restart: "no"
+
+  # Service containers. Each waits for db-init, applies its own migrations, then serves.
+  specs:
+    build: ./services/specs
+    environment:
+      DATABASE_URL: mssql://specs_user:${SPECS_DB_PASSWORD:-LocalOnly_specs_2026}@mssql:1433/specs
+      UI_ORIGIN: http://localhost:8080
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # Depends only on the database, not on specs: it must start and serve its own
+  # rounds while specs is stopped (docker compose stop specs).
+  samples:
+    build: ./services/samples
+    environment:
+      DATABASE_URL: mssql://samples_user:${SAMPLES_DB_PASSWORD:-LocalOnly_samples_2026}@mssql:1433/samples
+      SPECS_URL: http://specs:8000
+      UI_ORIGIN: http://localhost:8080
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # Not a service container: a stock web server with ui/ mounted, no Dockerfile.
+  ui:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8080:80"  # open http://localhost:8080 (the origin both services allow by default)
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+
+volumes:
+  mssql-data:

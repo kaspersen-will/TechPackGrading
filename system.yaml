@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=./system.schema.json
+# What runs where. CI validates this file against system.schema.json; every
+# environment variable each service reads is listed with the default in its code.
+student: wnklavold.ieu2024
+prefix: wnklavold-ieu2024
+# The storage account's primary web endpoint, without the trailing slash.
+public_url: https://wnklavoldieu2024ui.z1.web.core.windows.net
+
+ui:
+  path: ui
+  storage_account: wnklavoldieu2024ui
+  calls: [specs, samples]
+
+azure:
+  resource_group: rg-wnklavold-ieu2024
+  container_apps_environment: wnklavold-ieu2024-env
+  sql_server: wnklavold-ieu2024-sql-be
+  registry: ghcr.io/kaspersen-will
+
+services:
+  specs:
+    description: Styles, sizes, points of measure, grade rules and the graded spec per size.
+    path: services/specs
+    openapi: services/specs/openapi.yaml
+    port_default: 8000
+    health: /health
+    migrations: services/specs/migrations
+    env:
+      PORT: { default: 8000, description: Port the service listens on }
+      DATABASE_URL: { secret: true, description: "Connection string of the specs database, mssql://user:password@host:port/database" }
+      UI_ORIGIN: { default: "http://localhost:8080", description: The only browser origin allowed by CORS }
+      GIT_SHA: { default: dev, description: "Commit the image was built from, reported by /health" }
+      HEALTH_DB_TIMEOUT_S: { default: 5, description: How long /health keeps retrying the database before answering 503 }
+      DB_CONNECT_TIMEOUT_S: { default: 90, description: How long a request keeps retrying while a paused database resumes }
+      APP_DEBUG: { default: "0", description: "1 turns on Flask debug mode; only read by python app.py, never in the container" }
+    azure:
+      container_app: wnklavold-ieu2024-specs
+      sql_database: wnklavold-ieu2024-specs-db
+
+  samples:
+    description: Factory sample rounds, their measurements and pass/fail verdicts against a snapshot of the graded spec.
+    path: services/samples
+    openapi: services/samples/openapi.yaml
+    port_default: 8001
+    health: /health
+    migrations: services/samples/migrations
+    env:
+      PORT: { default: 8001, description: Port the service listens on }
+      DATABASE_URL: { secret: true, description: "Connection string of the samples database, mssql://user:password@host:port/database" }
+      SPECS_URL: { default: "http://localhost:8000", description: Base URL of the specs service }
+      SPECS_TIMEOUT_S: { default: 25, description: "Timeout for the call to specs; long enough for specs to start from zero replicas" }
+      UI_ORIGIN: { default: "http://localhost:8080", description: The only browser origin allowed by CORS }
+      GIT_SHA: { default: dev, description: "Commit the image was built from, reported by /health" }
+      HEALTH_DB_TIMEOUT_S: { default: 5, description: How long /health keeps retrying the database before answering 503 }
+      DB_CONNECT_TIMEOUT_S: { default: 90, description: How long a request keeps retrying while a paused database resumes }
+      APP_DEBUG: { default: "0", description: "1 turns on Flask debug mode; only read by python app.py, never in the container" }
+    calls:
+      - service: specs
+        url_env: SPECS_URL
+        endpoints: ["GET /styles/{style_id}/spec/{size_label}"]
+        timeout_s: 25
+        on_failure: >-
+          Recording the round fails with 503 and "The specs service is not responding ... Nothing was saved."
+          Listing and opening recorded rounds keep working, since they never call specs.
+    azure:
+      container_app: wnklavold-ieu2024-samples
+      sql_database: wnklavold-ieu2024-samples-db
