@@ -104,7 +104,7 @@ ruff check .
 
 ## Deployment to Azure
 
-**Live URL:** _added once the first deploy is up_
+**Live URL:** https://wnklavoldieu2024ui.z1.web.core.windows.net
 
 Everything runs in my Azure for Students subscription, in resource group `rg-wnklavold-ieu2024`. The UI, the Container Apps and the identity are in Norway East; the SQL server is in Belgium Central, because Norway East and Poland Central refuse new SQL servers for this subscription (ADR-8):
 
@@ -212,6 +212,11 @@ az sql server firewall-rule delete -g "$RG" -s "$SQL" -n setup-my-ip
 
 ```bash
 az containerapp env create -n "$PREFIX-env" -g "$RG" -l "$REGION"   # also creates its Log Analytics workspace
+# Recent az versions create an "Express" environment, which rejects the revision suffix cd.yml sets.
+# Switch it to a standard Consumption (workload profiles) environment; this takes a few minutes.
+az rest --method patch \
+  --url "https://management.azure.com$(az containerapp env show -n "$PREFIX-env" -g "$RG" --query id -o tsv)?api-version=2025-10-02-preview" \
+  --body '{"properties": {"environmentMode": "WorkloadProfiles"}}'
 for pair in specs:8000 samples:8001; do
   az containerapp create -n "$PREFIX-${pair%%:*}" -g "$RG" --environment "$PREFIX-env" \
     --image mcr.microsoft.com/k8se/quickstart:latest \
@@ -279,6 +284,7 @@ az containerapp logs show -n wnklavold-ieu2024-specs -g rg-wnklavold-ieu2024 --t
 | Symptom | Likely cause |
 |---|---|
 | `azure/login`: "No matching federated identity record" | OIDC subject mismatch (zsh, or the numeric-ID form): compare with `az identity federated-credential list` |
+| "ExpressRevisionSuffixNotSupported" | The environment is in Express mode: switch it as in step 5 |
 | "Authentication failed when pulling container image" | GHCR package still private (step 8) |
 | `/health` never 200, app restarts | Wrong `DATABASE_URL` password, wrong target port, or the database still resuming |
 | UI reads work, every save says "Failed to fetch" | Ingress CORS turned on, or `UI_ORIGIN` isn't the storage endpoint |
