@@ -114,7 +114,7 @@ Everything runs in my Azure for Students subscription, in resource group `rg-wnk
 | Container Apps environment (Consumption) | `wnklavold-ieu2024-env` | nothing itself |
 | Container App, 0–1 replicas | `wnklavold-ieu2024-specs`, `wnklavold-ieu2024-samples` | per second while a replica runs |
 | Log Analytics workspace | created with the environment | per GB of logs |
-| SQL server, two Basic databases | `wnklavold-ieu2024-sql-be`, `wnklavold-ieu2024-specs-db`, `…-samples-db` | about $5 a month each |
+| SQL server, two serverless databases | `wnklavold-ieu2024-sql-be`, `wnklavold-ieu2024-specs-db`, `…-samples-db` | per vCore second while resumed, per GB stored |
 | Managed identity the pipeline signs in as | `wnklavold-ieu2024-github` | free |
 
 Images are in GHCR: `ghcr.io/kaspersen-will/maison-grader-specs` and `-samples`, tagged with the commit SHA.
@@ -177,14 +177,16 @@ az storage blob service-properties update --account-name "$UI_STORAGE" --auth-mo
 az storage account show -n "$UI_STORAGE" -g "$RG" --query primaryEndpoints.web -o tsv   # -> public_url in system.yaml
 ```
 
-**4. SQL server, two Basic databases, one contained user each.** The free serverless offer isn't available in any region this subscription can create SQL servers in, so each database is Basic (5 DTU, 2 GB, always on; ADR-8). A failed `az sql server create` can reserve the name in the resource group for a while, so check the region first (step 1).
+**4. SQL server, two serverless databases, one contained user each.** The free serverless offer isn't available in any region this subscription can create SQL servers in, so the databases are paid serverless: 0.5–1 vCore, 2 GB, auto-pause after 60 minutes, the shortest Azure allows here (ADR-8). A failed `az sql server create` can reserve the name in the resource group for a while, so check the region first (step 1).
 
 ```bash
 read -rsp "SQL admin password: " SQL_ADMIN_PW; echo
 az sql server create -n "$SQL" -g "$RG" -l "$SQL_REGION" -u sqladmin -p "$SQL_ADMIN_PW"
 for s in specs samples; do
   az sql db create -g "$RG" -s "$SQL" -n "$PREFIX-$s-db" \
-    --edition Basic --backup-storage-redundancy Local
+    --edition GeneralPurpose --compute-model Serverless --family Gen5 \
+    --min-capacity 0.5 --capacity 1 --auto-pause-delay 60 --max-size 2GB \
+    --backup-storage-redundancy Local
 done
 az sql server firewall-rule create -g "$RG" -s "$SQL" -n AllowAzureServices \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
