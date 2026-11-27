@@ -7,7 +7,8 @@ values are copied into this service's own rows.
 
 from samples.review import STAGES, SampleError, build_measurements, review, summarise
 
-# The tables are defined by migrations/001_init.sql, applied by migrate.py.
+# The tables are defined by migrations/ (001_init.sql, then 003 adds the stored
+# verdict round_measurement.passes), applied by migrate.py.
 # sample_round.style_id deliberately has no foreign key: styles live in the
 # specs service's database (ADR-3).
 
@@ -30,10 +31,10 @@ def record_round(conn, style_id, size_label, stage, spec, measured_by_code):
         ).fetchone()["id"]
         conn.executemany(
             "INSERT INTO round_measurement"
-            " (round_id, pom_code, description, target_mm, tolerance_mm, measured_mm)"
-            " VALUES (%s, %s, %s, %s, %s, %s)",
+            " (round_id, pom_code, description, target_mm, tolerance_mm, measured_mm, passes)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
             [(round_id, r["pom_code"], r["description"], r["target_mm"],
-              r["tolerance_mm"], r["measured_mm"]) for r in rows],
+              r["tolerance_mm"], r["measured_mm"], r["passes"]) for r in rows],
         )
     return round_id
 
@@ -45,7 +46,7 @@ def _measurements(conn, round_ids):
         return grouped
     placeholders = ", ".join("%s" for _ in round_ids)
     rows = conn.execute(
-        "SELECT round_id, pom_code, description, target_mm, tolerance_mm, measured_mm"
+        "SELECT round_id, pom_code, description, target_mm, tolerance_mm, measured_mm, passes"
         f" FROM round_measurement WHERE round_id IN ({placeholders}) ORDER BY pom_code",
         list(round_ids),
     ).fetchall()

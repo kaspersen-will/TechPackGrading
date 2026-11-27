@@ -24,7 +24,7 @@ def test_one_mm_past_tolerance_fails():
 def test_build_measurements_snapshots_spec_values():
     rows = build_measurements([CHEST, LENGTH], {"CH": 525, "BL": 700})
     assert rows[0] == {"pom_code": "CH", "description": "Chest", "target_mm": 520,
-                       "tolerance_mm": 10, "measured_mm": 525}
+                       "tolerance_mm": 10, "measured_mm": 525, "passes": True}
     assert rows[1]["measured_mm"] == 700
 
 
@@ -48,11 +48,24 @@ def test_spec_without_poms_rejected():
         build_measurements([], {})
 
 
-def test_review_adds_signed_deviation_and_verdict():
+def test_build_measurements_decides_verdict_at_record_time():
+    rows = build_measurements([CHEST], {"CH": 531})
+    assert rows[0]["passes"] is False
+
+
+def test_review_adds_signed_deviation_and_keeps_stored_verdict():
     row = review({"pom_code": "CH", "description": "Chest", "target_mm": 520,
-                  "tolerance_mm": 10, "measured_mm": 505})
+                  "tolerance_mm": 10, "measured_mm": 505, "passes": 0})
     assert row["deviation_mm"] == -15
     assert row["passes"] is False
+
+
+def test_review_never_recomputes_the_verdict():
+    # Stored as a pass under an older rule: it stays a pass even though
+    # today's passes() would fail it (migration 003, ADR-2 snapshot).
+    row = review({"pom_code": "CH", "description": "Chest", "target_mm": 520,
+                  "tolerance_mm": 10, "measured_mm": 540, "passes": 1})
+    assert row["passes"] is True
 
 
 def test_summary_counts_failures():

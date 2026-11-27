@@ -1,6 +1,6 @@
 import pymssql
 import pytest
-from conftest import count
+from conftest import DROP_EVERYTHING, count
 
 import migrate
 
@@ -78,3 +78,36 @@ def test_failed_migration_leaves_nothing_behind(conn, tmp_path):
         migrate.migrate(conn, tmp_path)
     assert conn.execute("SELECT OBJECT_ID(N'half_done') AS id").fetchone()["id"] is None
     assert count(conn, "schema_migrations") == len(migrate.read_migrations())
+
+
+def test_003_backfills_verdict_on_existing_rows(conn, tmp_path):
+    # Rebuild the database as it was before 003, with rows already recorded.
+    with conn:
+        conn.execute(DROP_EVERYTHING)
+    before = [m for m in migrate.read_migrations() if m[0] < "003"]
+    for version, sql, _ in before:
+        write(tmp_path, version, sql)
+    migrate.migrate(conn, tmp_path)
+    with conn:
+        round_id = conn.execute(
+            "INSERT INTO sample_round (style_id, style_code, size_label, stage)"
+            " OUTPUT INSERTED.id VALUES (1, 'JK-1', 'M', 'fit')").fetchone()["id"]
+        conn.executemany(
+            "INSERT INTO round_measurement"
+            " (round_id, pom_code, description, target_mm, tolerance_mm, measured_mm)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            [(round_id, "BL", "Body length", 700, 10, 690),   # exactly at tolerance: pass
+             (round_id, "CH", "Chest", 520, 10, 535)])        # 15 over: fail
+
+    for version, sql, _ in migrate.read_migrations():
+        write(tmp_path, version, sql)
+    assert migrate.migrate(conn, tmp_path) == ["003_store_verdict.sql"]
+
+    rows = conn.execute("SELECT pom_code, measured_mm, passes FROM round_measurement"
+                        " ORDER BY pom_code").fetchall()
+    assert rows == [{"pom_code": "BL", "measured_mm": 690, "passes": True},
+                    {"pom_code": "CH", "measured_mm": 535, "passes": False}]
+    nullable = conn.execute(
+        "SELECT IS_NULLABLE AS n FROM INFORMATION_SCHEMA.COLUMNS"
+        " WHERE TABLE_NAME = 'round_measurement' AND COLUMN_NAME = 'passes'").fetchone()["n"]
+    assert nullable == "NO"

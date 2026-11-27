@@ -46,17 +46,22 @@ def build_measurements(spec_poms, measured_by_code):
             "target_mm": pom["target_mm"],
             "tolerance_mm": pom["tolerance_mm"],
             "measured_mm": measured_mm,
+            # Decided now and stored with the round (migration 003), never recomputed.
+            "passes": passes(pom["target_mm"], pom["tolerance_mm"], measured_mm),
         })
     return rows
 
 
 def review(measurement):
-    """One snapshot row plus its deviation and pass/fail verdict."""
+    """One stored snapshot row plus its signed deviation.
+
+    The verdict is the one stored when the round was recorded, not recomputed,
+    so a later change to passes() can't change a past round's result.
+    """
     return {
         **measurement,
         "deviation_mm": measurement["measured_mm"] - measurement["target_mm"],
-        "passes": passes(measurement["target_mm"], measurement["tolerance_mm"],
-                         measurement["measured_mm"]),
+        "passes": bool(measurement["passes"]),
     }
 
 
