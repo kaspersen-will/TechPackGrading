@@ -8,7 +8,7 @@ A small independent label (one designer and one production manager, about 40 sty
 
 ## Feature domains
 
-The application is a single-process monolith with two feature domains, designed so each could later become its own service.
+The application has two feature domains. Assignment 1 built them as one Flask app; Assignment 2 splits them into two services along the seam below (ADR-6).
 
 ### 1. Specs & grading
 
@@ -106,7 +106,7 @@ ruff check .
 
 **Live URL:** _added once the first deploy is up_
 
-Everything runs in the Azure for Students subscription, in resource group `rg-wnklavold-ieu2024`:
+Everything runs in my Azure for Students subscription, in resource group `rg-wnklavold-ieu2024`. The UI, the Container Apps and the identity are in Norway East; the SQL server is in Belgium Central, because Norway East and Poland Central refuse new SQL servers for this subscription (ADR-8):
 
 | Resource | Name | Billed |
 |---|---|---|
@@ -114,7 +114,7 @@ Everything runs in the Azure for Students subscription, in resource group `rg-wn
 | Container Apps environment (Consumption) | `wnklavold-ieu2024-env` | nothing itself |
 | Container App, 0–1 replicas | `wnklavold-ieu2024-specs`, `wnklavold-ieu2024-samples` | per second while a replica runs |
 | Log Analytics workspace | created with the environment | per GB of logs |
-| SQL server, two serverless databases (free offer) | `wnklavold-ieu2024-sql`, `…-specs-db`, `…-samples-db` | per vCore second while resumed |
+| SQL server, two Basic databases | `wnklavold-ieu2024-sql-be`, `wnklavold-ieu2024-specs-db`, `…-samples-db` | about $5 a month each |
 | Managed identity the pipeline signs in as | `wnklavold-ieu2024-github` | free |
 
 Images are in GHCR: `ghcr.io/kaspersen-will/maison-grader-specs` and `-samples`, tagged with the commit SHA.
@@ -136,6 +136,7 @@ Run in Bash (Azure Cloud Shell has `az`, `gh` and `sqlcmd`). In zsh, `"repo:$GH_
 ```bash
 PREFIX=wnklavold-ieu2024
 RG=rg-$PREFIX
+SQL=$PREFIX-sql-be
 UI_STORAGE=wnklavoldieu2024ui
 GH_REPO=kaspersen-will/TechPackGrading
 ```
@@ -148,8 +149,13 @@ az account set --subscription "Azure for Students"
 az policy assignment list \
   --query "[?displayName=='Allowed resource deployment regions'].parameters.listOfAllowedLocations.value" -o tsv
 # empty? the display name differs: az policy assignment list -o table, then look at that assignment
-REGION=__REGION__                 # one region from that list, used for everything
-SQL_REGION=__SQL_REGION__          # the free SQL offer isn't in every region (not spaincentral)
+REGION=norwayeast                 # one region from that list, for everything except SQL
+SQL_REGION=belgiumcentral          # a region that accepts new SQL servers, checked below
+# Which allowed regions accept new SQL servers ("Available"; "Visible" means refused):
+SUB=$(az account show --query id -o tsv)
+for r in $(az policy assignment list --query "[?displayName=='Allowed resource deployment regions'].parameters.listOfAllowedLocations.value[]" -o tsv); do
+  echo "$r $(az rest --method get --url "https://management.azure.com/subscriptions/$SUB/providers/Microsoft.Sql/locations/$r/capabilities?api-version=2023-08-01-preview" --query status -o tsv)"
+done
 ```
 
 **2. Providers and resource group.**
@@ -171,23 +177,21 @@ az storage blob service-properties update --account-name "$UI_STORAGE" --auth-mo
 az storage account show -n "$UI_STORAGE" -g "$RG" --query primaryEndpoints.web -o tsv   # -> public_url in system.yaml
 ```
 
-**4. SQL server, two serverless databases, one contained user each.** The free offer fixes auto-pause at 60 minutes and the size at 32 GB, so `--auto-pause-delay` and `--max-size` are not passed.
+**4. SQL server, two Basic databases, one contained user each.** The free serverless offer isn't available in any region this subscription can create SQL servers in, so each database is Basic (5 DTU, 2 GB, always on; ADR-8). A failed `az sql server create` can reserve the name in the resource group for a while, so check the region first (step 1).
 
 ```bash
 read -rsp "SQL admin password: " SQL_ADMIN_PW; echo
-az sql server create -n "$PREFIX-sql" -g "$RG" -l "$SQL_REGION" -u sqladmin -p "$SQL_ADMIN_PW"
+az sql server create -n "$SQL" -g "$RG" -l "$SQL_REGION" -u sqladmin -p "$SQL_ADMIN_PW"
 for s in specs samples; do
-  az sql db create -g "$RG" -s "$PREFIX-sql" -n "$PREFIX-$s-db" \
-    --edition GeneralPurpose --compute-model Serverless --family Gen5 \
-    --min-capacity 0.5 --capacity 1 --backup-storage-redundancy Local \
-    --use-free-limit true --free-limit-exhaustion-behavior AutoPause
+  az sql db create -g "$RG" -s "$SQL" -n "$PREFIX-$s-db" \
+    --edition Basic --backup-storage-redundancy Local
 done
-az sql server firewall-rule create -g "$RG" -s "$PREFIX-sql" -n AllowAzureServices \
+az sql server firewall-rule create -g "$RG" -s "$SQL" -n AllowAzureServices \
   --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
 
 # Open the firewall to this machine only while creating the users.
 MY_IP=$(curl -s https://api.ipify.org)
-az sql server firewall-rule create -g "$RG" -s "$PREFIX-sql" -n setup-my-ip \
+az sql server firewall-rule create -g "$RG" -s "$SQL" -n setup-my-ip \
   --start-ip-address "$MY_IP" --end-ip-address "$MY_IP"
 read -rsp "specs_user password: " SPECS_DB_PASSWORD; echo
 read -rsp "samples_user password: " SAMPLES_DB_PASSWORD; echo
@@ -195,13 +199,13 @@ for pair in "specs:$SPECS_DB_PASSWORD" "samples:$SAMPLES_DB_PASSWORD"; do
   s=${pair%%:*}; pw=${pair#*:}
   # A contained user exists only in its own database, so it can't reach the other one.
   # db_ddladmin lets it run its own migrations.
-  sqlcmd -S "$PREFIX-sql.database.windows.net" -d "$PREFIX-$s-db" -U sqladmin -P "$SQL_ADMIN_PW" -b -Q "
+  sqlcmd -S "$SQL.database.windows.net" -d "$PREFIX-$s-db" -U sqladmin -P "$SQL_ADMIN_PW" -b -Q "
     CREATE USER ${s}_user WITH PASSWORD = '$pw';
     ALTER ROLE db_ddladmin ADD MEMBER ${s}_user;
     ALTER ROLE db_datareader ADD MEMBER ${s}_user;
     ALTER ROLE db_datawriter ADD MEMBER ${s}_user;"
 done
-az sql server firewall-rule delete -g "$RG" -s "$PREFIX-sql" -n setup-my-ip
+az sql server firewall-rule delete -g "$RG" -s "$SQL" -n setup-my-ip
 ```
 
 **5. Container Apps.** Scale 0 to 1, so a migration never runs twice at once and an idle system costs nothing. Ingress CORS stays off: the services allow `UI_ORIGIN` themselves, because ingress CORS rejects the JSON preflight. The placeholder image is replaced by the first deploy, which also sets every environment variable and the secret.
@@ -216,7 +220,7 @@ for pair in specs:8000 samples:8001; do
 done
 ```
 
-**6. The pipeline's identity.** IE accounts can't create service principals, so the pipeline signs in as a user-assigned managed identity with Contributor on this resource group only. GitHub may send the OIDC subject with names or with numeric IDs, so both are registered.
+**6. The pipeline's identity.** The pipeline signs in as a user-assigned managed identity with Contributor on this resource group only: no client secret to store or rotate, unlike a service principal. GitHub may send the OIDC subject with names or with numeric IDs, so both are registered.
 
 ```bash
 az identity create -n "$PREFIX-github" -g "$RG" -l "$REGION"
@@ -245,15 +249,19 @@ gh secret set SAMPLES_DB_PASSWORD   -R "$GH_REPO" -b "$SAMPLES_DB_PASSWORD"
 gh variable set PREFIX         -R "$GH_REPO" -b "$PREFIX"
 gh variable set RESOURCE_GROUP -R "$GH_REPO" -b "$RG"
 gh variable set UI_STORAGE     -R "$GH_REPO" -b "$UI_STORAGE"
+gh variable set SQL_SERVER     -R "$GH_REPO" -b "$SQL"
 ```
 
 **8. First deploy.** Merge a pull request into `main`. The deploy job fails the first time on purpose: new GHCR packages are private, so Azure can't pull them. Make `maison-grader-specs` and `maison-grader-samples` public (GitHub → Packages → Package settings → Change visibility), then re-run the failed job.
 
-**9. Read access for the professors.**
+**9. Read access for the professors.** The subscription is in my personal directory, which doesn't know IE accounts, so each professor is invited as a guest first (they get an email and must accept it), then given Reader on the resource group.
 
 ```bash
 for p in amartini@faculty.ie.edu bserra@faculty.ie.edu; do
-  az role assignment create --assignee "$p" --role Reader --scope "$RG_ID"
+  id=$(az rest --method post --url https://graph.microsoft.com/v1.0/invitations \
+    --body "{\"invitedUserEmailAddress\": \"$p\", \"inviteRedirectUrl\": \"https://portal.azure.com\", \"sendInvitationMessage\": true}" \
+    --query invitedUser.id -o tsv)
+  az role assignment create --assignee-object-id "$id" --assignee-principal-type User --role Reader --scope "$RG_ID"
 done
 ```
 

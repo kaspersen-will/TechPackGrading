@@ -33,6 +33,7 @@ jobs:
       PREFIX: ${{ vars.PREFIX }}
       RG: ${{ vars.RESOURCE_GROUP }}
       UI_STORAGE: ${{ vars.UI_STORAGE }}
+      SQL_SERVER: ${{ vars.SQL_SERVER }}
       IMAGES: ghcr.io/${{ github.repository_owner }}/maison-grader
       SHA: ${{ github.sha }}
       # A new revision name on every attempt, so re-running a failed deploy pulls again.
@@ -68,7 +69,7 @@ jobs:
         env:
           DB_PASSWORD: ${{ secrets.SPECS_DB_PASSWORD }}
         run: |
-          url=$(python3 -c 'import os, urllib.parse as u; print("mssql://specs_user:" + u.quote(os.environ["DB_PASSWORD"], safe="") + "@" + os.environ["PREFIX"] + "-sql.database.windows.net:1433/" + os.environ["PREFIX"] + "-specs-db")')
+          url=$(python3 -c 'import os, urllib.parse as u; print("mssql://specs_user:" + u.quote(os.environ["DB_PASSWORD"], safe="") + "@" + os.environ["SQL_SERVER"] + ".database.windows.net:1433/" + os.environ["PREFIX"] + "-specs-db")')
           echo "::add-mask::$url"
           az containerapp secret set -n "$PREFIX-specs" -g "$RG" --secrets "database-url=$url" -o none
           az containerapp update -n "$PREFIX-specs" -g "$RG" -o none \
@@ -80,7 +81,7 @@ jobs:
         env:
           DB_PASSWORD: ${{ secrets.SAMPLES_DB_PASSWORD }}
         run: |
-          url=$(python3 -c 'import os, urllib.parse as u; print("mssql://samples_user:" + u.quote(os.environ["DB_PASSWORD"], safe="") + "@" + os.environ["PREFIX"] + "-sql.database.windows.net:1433/" + os.environ["PREFIX"] + "-samples-db")')
+          url=$(python3 -c 'import os, urllib.parse as u; print("mssql://samples_user:" + u.quote(os.environ["DB_PASSWORD"], safe="") + "@" + os.environ["SQL_SERVER"] + ".database.windows.net:1433/" + os.environ["PREFIX"] + "-samples-db")')
           echo "::add-mask::$url"
           az containerapp secret set -n "$PREFIX-samples" -g "$RG" --secrets "database-url=$url" -o none
           az containerapp update -n "$PREFIX-samples" -g "$RG" -o none \

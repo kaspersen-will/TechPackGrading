@@ -3,9 +3,8 @@
 # environment variable each service reads is listed with the default in its code.
 student: wnklavold.ieu2024
 prefix: wnklavold-ieu2024
-# Placeholder until the storage account exists (README, initial setup step 3):
-# replace with its primary web endpoint, without the trailing slash.
-public_url: https://wnklavoldieu2024ui.web.core.windows.net
+# The storage account's primary web endpoint, without the trailing slash.
+public_url: https://wnklavoldieu2024ui.z1.web.core.windows.net
 
 ui:
   path: ui
@@ -15,7 +14,7 @@ ui:
 azure:
   resource_group: rg-wnklavold-ieu2024
   container_apps_environment: wnklavold-ieu2024-env
-  sql_server: wnklavold-ieu2024-sql
+  sql_server: wnklavold-ieu2024-sql-be
   registry: ghcr.io/kaspersen-will
 
 services:
