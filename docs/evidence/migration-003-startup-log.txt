@@ -1,0 +1,5 @@
+-- Container App wnklavold-ieu2024-samples, revision started by CD run https://github.com/kaspersen-will/TechPackGrading/actions/runs/46030101933 (commit a4e79fa)
+-- az containerapp logs show -n wnklavold-ieu2024-samples -g rg-wnklavold-ieu2024 --tail 300
+
+2026-11-27T16:04:29.9505209Z stdout F 2026-11-27 16:04:29,950 INFO migrate applied migration 003_store_verdict.sql
+2026-11-27T16:04:30.3499562Z stderr F [2026-11-27 16:04:30 +0000] [1] [INFO] Listening at: http://0.0.0.0:8001 (1)

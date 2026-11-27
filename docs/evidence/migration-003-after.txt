@@ -1,0 +1,28 @@
+-- samples database (wnklavold-ieu2024-samples-db) on wnklavold-ieu2024-sql-be.database.windows.net, after migration 003
+-- captured 2026-11-27T16:05:56Z, deployed commit a4e79fa
+
+version applied_at
+------- ----------
+001_init.sql 2026-11-27 15:20:47
+002_health_check.sql 2026-11-27 15:20:47
+003_store_verdict.sql 2026-11-27 16:04:30
+
+COLUMN_NAME DATA_TYPE IS_NULLABLE
+----------- --------- -----------
+round_id int NO
+pom_code nvarchar NO
+description nvarchar NO
+target_mm int NO
+tolerance_mm int NO
+measured_mm int NO
+passes bit NO
+
+round_id stage size_label pom_code target_mm tolerance_mm measured_mm passes
+-------- ----- ---------- -------- --------- ------------ ----------- ------
+1 proto L BL 755 10 748 1
+1 proto L CH 560 10 575 0
+1 proto L SL 640 8 632 1
+2 fit L BL 755 10 760 1
+2 fit L CH 560 10 562 1
+2 fit L SL 640 8 640 1
+
