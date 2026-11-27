@@ -1,4 +1,4 @@
-# CD: every push to main, that is, every merged pull request. Runs CI first (which
+# CD: every push to main. Runs CI first (which
 # also pushes the SHA-tagged images) and deploys only if CI passed on this commit.
 # The pipeline owns the Container Apps' configuration: each deploy sets the image,
 # the database secret and every environment variable, so Azure can't drift from

@@ -121,7 +121,7 @@ Images are in GHCR: `ghcr.io/kaspersen-will/maison-grader-specs` and `-samples`,
 
 ### How a deploy works
 
-Changes reach `main` only through pull requests, so CI has already run on the branch. Merging runs `.github/workflows/cd.yml`:
+I'm the only contributor, so I commit straight to `main`. Every push to `main` runs `.github/workflows/cd.yml`, and nothing deploys unless CI passes on that commit:
 
 1. CI runs on the merged commit (`workflow_call`) and, because this is `main`, pushes both images tagged with the commit SHA.
 2. Only if CI passed, the deploy job signs in to Azure as `wnklavold-ieu2024-github` over OIDC: no Azure password is stored anywhere.
@@ -257,7 +257,7 @@ gh variable set UI_STORAGE     -R "$GH_REPO" -b "$UI_STORAGE"
 gh variable set SQL_SERVER     -R "$GH_REPO" -b "$SQL"
 ```
 
-**8. First deploy.** Merge a pull request into `main`. The deploy job fails the first time on purpose: new GHCR packages are private, so Azure can't pull them. Make `maison-grader-specs` and `maison-grader-samples` public (GitHub → Packages → Package settings → Change visibility), then re-run the failed job.
+**8. First deploy.** Push to `main`. If the deploy job fails with "Authentication failed when pulling container image", the new GHCR packages are private: make `maison-grader-specs` and `maison-grader-samples` public (GitHub → Packages → Package settings → Change visibility), then re-run the failed job.
 
 **9. Read access for the professors.** The subscription is in my personal directory, which doesn't know IE accounts, so each professor is invited as a guest first (they get an email and must accept it), then given Reader on the resource group.
 
